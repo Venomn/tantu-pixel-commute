@@ -59,12 +59,12 @@ func run() -> void:
 	game.player_x=480
 	game.spits.append({"pos":Vector2(450,450),"vel":Vector2(1000,-game.speed),"life":1.0,"near":false})
 	game.update_game(.06)
-	check(game.state=="dead" and game.result_reason=="spit","actual fast projectile causes single-hit game over")
+	check(game.state=="shop" and game.result_reason=="spit","actual fast projectile causes single-hit game over")
 	game.start_run()
 	check(game.spits.is_empty() and game.near_misses==0 and game.elapsed==0,"retry removes all old hazards")
 	game.elapsed=game.time_limit
 	game.update_game(.01)
-	check(game.state=="dead" and game.result_reason=="late","late arrival fails without a spit")
+	check(game.state=="shop" and game.result_reason=="late","late arrival fails without a spit")
 	game.start_run()
 	game.distance=game.target_distance*.29
 	game.update_game(.01)
@@ -84,21 +84,20 @@ func run() -> void:
 		game.route_stage=2
 		game.distance=game.target_distance
 		game.update_game(.001)
-		check(game.state=="clear" and game.coins>=100,"day %d can finish"%d)
+		check(game.state=="shop" and game.coins>=100,"day %d can finish"%d)
 		game.load_save()
 		check(game.saved.day==mini(d+1,4) and game.saved.coins==game.coins and game.saved.wins==d+1,"arrival checkpoint survives reload")
 		var amount: int = game.coins
 		game.finish_run()
 		check(game.coins==amount,"clear cannot award twice")
-		game.advance_day()
 		if d<4:
 			check(game.day==d+1 and game.state=="shop","advance to shop/day %d"%(d+1))
 			if not game.equipped.has(1): game.buy_gear(1)
 			check(game.gear==1,"gear purchase")
 			game.start_run()
-	check(game.state=="final" and game.wins==5,"five-day campaign reaches ending")
+	check(game.state=="shop" and game.wins==5,"five-day campaign reaches ending")
 	game.resume_save()
-	check(game.state=="final","completed save restores ending, not a replayed reward")
+	check(game.state=="shop","completed save restores ending, not a replayed reward")
 	# Restore existing user state after isolated test.
 	if original:
 		var f := FileAccess.open("user://qa_run_tests.json",FileAccess.WRITE)

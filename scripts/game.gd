@@ -1,6 +1,7 @@
 extends Node2D
 
 const Rules = preload("res://scripts/rules.gd")
+const Perks = preload("res://scripts/perks.gd")
 const Equipment = preload("res://scripts/equipment.gd")
 const Traffic = preload("res://scripts/traffic.gd")
 const INK = Color("3a4b68")
@@ -21,6 +22,15 @@ var day := 0
 var coins := 0
 var gear := 0
 var wins := 0
+var weeks := 0
+var last_result: Dictionary = {}
+var buffs: Dictionary = {}
+var perk_choices: Array[int] = []
+var perk_stage := 0
+var spare_guards := 0
+var jump_charges := 0
+var jump_flash := 0.0
+var wallet_flash := 0.0
 var owned: Array = []
 var equipped: Array = []
 var pickups: Array[Dictionary] = []
@@ -130,8 +140,8 @@ func load_save() -> void:
 		var f := FileAccess.open(save_path, FileAccess.READ)
 		if f: saved = Rules.clean_save(JSON.parse_string(f.get_as_text()))
 
-func save_game(next_day := false) -> void:
-	saved = {"version":2,"owned":owned.duplicate(),"equipped":equipped.duplicate(),"day":mini(day+1,4) if next_day else day,"mode":mode,"coins":coins,"gear":gear,"wins":wins}
+func save_game() -> void:
+	saved = {"version":3,"phase":"shop" if state=="shop" else ("run" if state in ["play","pause","route","upgrade"] else "brief"),"run_earned":run_coins,"run_progress":clampi(int(distance/maxf(1,target_distance)*100),0,100),"weeks":weeks,"last_result":last_result.duplicate(),"owned":owned.duplicate(),"equipped":equipped.duplicate(),"day":day,"mode":mode,"coins":coins,"gear":gear,"wins":wins}
 	var temp_path := save_path + ".tmp"
 	var f := FileAccess.open(temp_path, FileAccess.WRITE)
 	if not f:
@@ -207,17 +217,17 @@ func build_ui() -> void:
 	match state:
 		"menu":
 			button("开始", Rect2(56,328,286,52), request_new_game, true)
-			if not saved.is_empty(): button(("重看全勤结局" if saved.wins == 5 else "继续 · 第 " + str(int(saved.day)+1) + " 天"), Rect2(56,392,286,46), resume_save)
+			if not saved.is_empty(): button(("回到改装铺" if saved.get("phase","")=="shop" else "继续 · 第 " + str(int(saved.day)+1) + " 天"), Rect2(56,392,286,46), resume_save)
 			button("玩法 / 声音", Rect2(56,392 if saved.is_empty() else 456,174,38), func(): change_state("help"))
 		"new_confirm":
 			button("保留存档，返回", Rect2(230,350,235,48), func(): change_state("menu"), true)
-			button("清空并重新开始", Rect2(495,350,235,48), func(): new_game("week"))
+			button("保留装备，重新出发", Rect2(495,350,235,48), func(): new_game("week"))
 		"help":
 			button("音效：" + ("关" if muted else "开"), Rect2(260,427,205,45), toggle_sound)
 			button("音乐：" + ("开" if music_on else "关"), Rect2(495,427,205,45), toggle_music)
 			button("返回", Rect2(350,490,260,46), func(): change_state("menu"), true)
 		"brief":
-			button("出门上班   →", Rect2(330,447,300,52), start_run, true)
+			button("出门上班   →", Rect2(330,447,300,52), begin_run, true)
 			button("改装铺 / 装备", Rect2(240,510,230,38), func(): open_shop("brief"))
 			button("返回主菜单", Rect2(490,510,230,38), func(): change_state("menu"))
 		"play":
@@ -229,7 +239,7 @@ func build_ui() -> void:
 				b.button_up.connect(func(): touch[pair[1]] = false)
 			button("铃铛", Rect2(610,540,80,44), ring_bell, true)
 			if equipped.has(5): button("E 撑伞", Rect2(779,382,164,42), use_umbrella, true)
-			if equipped.has(6): button("F 泡泡炮", Rect2(779,434,164,42), fire_weapon, true)
+			if has_blaster(): button("F 泡泡炮", Rect2(779,434,164,42), fire_weapon, true)
 		"route":
 			button("走公园 · 人少路长", Rect2(220,400,245,54), func(): choose_route("park"), true)
 			button("抄近道 · 人多路短", Rect2(495,400,245,54), func(): choose_route("shortcut"))
@@ -237,22 +247,19 @@ func build_ui() -> void:
 			button("继续骑行", Rect2(330,295,300,48), unpause, true)
 			button("音效：" + ("关" if muted else "开"), Rect2(330,355,145,44), toggle_sound)
 			button("音乐：" + ("开" if music_on else "关"), Rect2(485,355,145,44), toggle_music)
-			button("回主菜单 · 当天重新开始", Rect2(330,417,300,44), func(): stop_audio(); change_state("menu"))
-		"dead":
-			button("再骑一次   [R]", Rect2(300,430,360,51), start_run, true)
-			button("买装备再战", Rect2(270,495,200,38), func(): open_shop("dead"))
-			button("回家缓缓", Rect2(490,495,200,38), func(): change_state("menu"))
-		"clear":
-			button("下班！挑个新配件 →" if day < 4 else "领取全勤奖 →", Rect2(280,441,400,53), advance_day, true)
+			button("结束本局 · 回改装铺", Rect2(330,417,300,44), abandon_run)
+		"upgrade":
+			for i in perk_choices.size():
+				var choice := i
+				button("选择  [%d]" % (i+1),Rect2(123+i*244,420,214,46),func(): choose_perk(choice),true)
 		"shop":
 			for i in Equipment.ITEMS.size():
 				var item := i + 1
 				var label := "卸下" if equipped.has(item) else ("装备" if owned.has(item) else "购买 · %d 金" % Equipment.ITEMS[i].price)
-				var buy := button(label, Rect2(62+(i%4)*216,267+(i/4)*190,190,34), func(): buy_gear(item), equipped.has(item))
+				var buy := button(label,Rect2(62+(i%4)*216,269+(i/4)*180,190,32),func(): buy_gear(item),equipped.has(item))
 				buy.disabled = not owned.has(item) and coins < Equipment.ITEMS[i].price
-			button("继续准备出门 →", Rect2(330,526,300,42), func(): save_game(); change_state("brief"), true)
-		"final":
-			button("再过一周", Rect2(330,425,300,50), func(): change_state("menu"), true)
+			button("新一周，出发！" if wins==5 else "出发 · 第 %d 天 →" % (day+1),Rect2(327,532,306,42),depart_shop,true)
+			button("主菜单",Rect2(66,532,138,38),func(): change_state("menu"))
 
 func toggle_sound() -> void:
 	muted = not muted
@@ -273,13 +280,17 @@ func request_new_game() -> void:
 func new_game(selected: String) -> void:
 	mode = selected
 	day = 0
-	coins = 80
-	gear = 0
-	owned.clear(); equipped.clear()
+	coins = int(saved.get("coins",80))
+	owned = saved.get("owned",[]).duplicate()
+	equipped = saved.get("equipped",[]).duplicate()
+	gear = int(saved.get("gear",0))
+	weeks = int(saved.get("weeks",0))
+	last_result = {}
+	reset_perks()
 	wins = 0
 	attempts = 0
-	save_game()
 	change_state("brief")
+	save_game()
 
 func resume_save() -> void:
 	mode = saved.mode
@@ -289,14 +300,35 @@ func resume_save() -> void:
 	owned = saved.owned.duplicate()
 	equipped = saved.equipped.duplicate()
 	wins = saved.wins
-	change_state("final" if wins == 5 else "brief")
+	weeks = saved.get("weeks",0)
+	last_result = saved.get("last_result",{}).duplicate()
+	reset_perks()
+	if saved.get("phase","")=="run":
+		last_result={"reason":"quit","day":day,"earned":saved.get("run_earned",0),"bonus":0,"progress":saved.get("run_progress",0)}
+		change_state("shop")
+		save_game()
+	else: change_state("shop" if saved.get("phase","")=="shop" or wins==5 else "brief")
 
 func change_state(value: String) -> void:
 	state = value
 	build_ui()
 	queue_redraw()
 
+func begin_run() -> void:
+	if state not in ["brief","shop"]: return
+	start_run()
+	perk_stage=0
+	offer_perks()
+
+func depart_shop() -> void:
+	if state != "shop": return
+	if wins == 5: new_game(mode)
+	begin_run()
+
 func start_run() -> void:
+	reset_perks()
+	perk_stage=1
+	last_result = {}
 	elapsed = 0
 	pickups.clear(); garbage.clear(); shots.clear()
 	coin_timer = 1.5; run_coins = 0
@@ -318,8 +350,8 @@ func start_run() -> void:
 	attempts += 1
 	speed = 90
 	joke_timer = 11
-	save_game()
 	change_state("play")
+	save_game()
 	start_music()
 	notify("捡金币买装备！垃圾碰到就翻车，看红色落点绕行。", 5)
 
@@ -344,7 +376,7 @@ func _input(event: InputEvent) -> void:
 		if state == "play" and event.keycode == KEY_SPACE: ring_bell()
 		if state == "play" and event.keycode == KEY_E: use_umbrella()
 		if state == "play" and event.keycode == KEY_F: fire_weapon()
-		if state == "dead" and event.keycode == KEY_R: start_run()
+		if state == "upgrade" and event.keycode >= KEY_1 and event.keycode <= KEY_3: choose_perk(event.keycode-KEY_1)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and state == "play": pause_game()
@@ -352,6 +384,11 @@ func _notification(what: int) -> void:
 func pause_game() -> void:
 	stop_audio()
 	change_state("pause")
+
+func abandon_run() -> void:
+	if state != "pause": return
+	state="play"
+	settle_run("quit")
 
 func unpause() -> void:
 	change_state("play")
@@ -378,7 +415,9 @@ func choose_route(value: String) -> void:
 	notify("绕一点远路，换一身干净。" if route == "park" else "老板：这条近路，我都不敢走。", 4)
 
 func open_shop(_back: String) -> void:
+	if state not in ["brief","shop"]: return
 	change_state("shop")
+	save_game()
 
 func buy_gear(item: int) -> void:
 	if state != "shop" or not Equipment.valid(item): return
@@ -399,38 +438,34 @@ func buy_gear(item: int) -> void:
 	save_game()
 	build_ui()
 
-func advance_day() -> void:
-	if day == 4:
-		stop_audio()
-		change_state("final")
-		sfx("win")
-	else:
-		day += 1
-		save_game()
-		change_state("shop")
-
-func fail_run(reason: String) -> void:
+func settle_run(reason: String) -> void:
 	if state != "play": return
 	result_reason = reason
-	death_pos = Vector2(player_x,450)
+	var success := reason == "arrival"
+	award = 100 + near_misses*8 + maxi(0,int((time_limit-elapsed)/4)) if success else 0
+	coins = mini(9999,coins+award)
+	last_result = {"reason":reason,"day":day,"earned":run_coins,"bonus":award,"progress":clampi(int(100*distance/maxf(1,target_distance)),0,100)}
+	if success:
+		wins = mini(5,wins+1)
+		if day < 4: day += 1
+		else: weeks += 1
 	stop_audio()
-	sfx("splat" if reason == "spit" else "lose")
-	change_state("dead")
+	sfx("win" if success else ("splat" if reason=="spit" else "lose"))
+	reset_perks()
+	change_state("shop")
+	save_game()
+
+func fail_run(reason: String) -> void:
+	settle_run(reason)
 
 func finish_run() -> void:
-	if state != "play": return
-	award = 100 + near_misses * 8 + maxi(0,int((time_limit-elapsed)/4))
-	coins = mini(9999,coins+award)
-	wins += 1
-	save_game(true)
-	stop_audio()
-	sfx("win")
-	change_state("clear")
+	settle_run("arrival")
 
 func _process(dt: float) -> void:
 	clock += dt
 	toast_time = maxf(0, toast_time-dt)
 	if state == "play":
+		update_pickup_fx(dt)
 		# Bounded simulation substeps prevent a slow frame skipping collision or warnings.
 		var remaining := minf(dt, 0.1)
 		while remaining > 0 and state == "play":
@@ -452,15 +487,15 @@ func update_game(dt: float) -> void:
 	slow_timer = maxf(0,slow_timer-dt)
 	var braking := held("brake")
 	var sprinting := held("sprint") and stamina > 2 and not braking
-	var desired := 28.0 if braking else (148.0 if sprinting else 90.0)
+	var desired := 28.0 if braking else (148.0+perk_level(4)*20 if sprinting else 90.0+perk_level(4)*12)
 	if slow_timer > 0: desired *= 0.48
 	speed = move_toward(speed,desired,dt*(220 if gear==2 else 140))
 	if braking and not brake_was: sfx("brake")
 	brake_was = braking
-	stamina = clampf(stamina + dt * (-26 if sprinting else (23 if gear==1 else 17)),0,100)
+	stamina = clampf(stamina + dt * (-26 if sprinting else (23 if gear==1 else 17)+perk_level(1)*8),0,100)
 	var direction := float(held("right"))-float(held("left"))
 	var old_player := Vector2(player_x,450)
-	player_x = clampf(player_x + direction*dt*(205 if not braking else 160),283,677)
+	player_x = clampf(player_x + direction*dt*(205 if not braking else 160)*(1.0+perk_level(0)*.25),283,677)
 	distance += speed*dt
 	road_scroll += speed*dt
 	spawn_timer -= dt
@@ -541,6 +576,7 @@ func update_game(dt: float) -> void:
 		notify(["老板：不急，注意安全。还有两分钟。", "导航：道路畅通。建议闭眼？不建议！", "温馨提示：全勤奖不含洗衣补贴。", "文明街道评选中，请大家自由发挥。", "今天的目标：衣服比工资干净。"].pick_random(),4)
 	if elapsed >= time_limit: fail_run("late")
 	elif distance >= target_distance: finish_run()
+	elif perk_stage < 4 and distance/target_distance >= perk_stage*.25: offer_perks()
 
 func spawn_npc() -> void:
 	var side := rng.randi_range(0,1)
@@ -738,7 +774,7 @@ func _draw() -> void:
 		"new_confirm":
 			panel(Rect2(180,160,600,280))
 			centered("重新开始？",219,32)
-			centered("当前日期、金币和已买装备都会清空。",272,20)
+			centered("重新从第一天出发，金币和装备永久保留。",272,20)
 			centered("继续原来的游戏，请返回主菜单选「继续」。",310,16,TEAL)
 		"brief": draw_brief()
 		"help": draw_help()
@@ -747,10 +783,8 @@ func _draw() -> void:
 			panel(Rect2(265,148,430,345))
 			centered("路边歇一会儿",208,33)
 			centered("时间和危险都暂停了。",252,17)
-		"dead": draw_dead()
-		"clear": draw_clear()
+		"upgrade": draw_upgrade()
 		"shop": draw_shop()
-		"final": draw_final()
 
 func draw_menu() -> void:
 	rect(0,0,960,600,INK)
@@ -765,7 +799,7 @@ func draw_menu() -> void:
 	rect(57,239,54,5,RED)
 	txt("上个班而已。",56,281,21,INK)
 	txt("怎么还得走位？",56,310,21,INK)
-	txt("金币装备版 / 文明反击 / 垃圾退回",56,578,13,TEAL)
+	txt("局外改装 / 局内奇遇 / 文明反击",56,578,13,TEAL)
 	rect(424,32,199,29,DARK)
 	txt("07:58 AM   ·   宜 干净上班",434,52,13,CREAM)
 	cyclist(Vector2(571,398),2.7,true)
@@ -850,7 +884,7 @@ func draw_world() -> void:
 				var dot := from.lerp(p.target,j/10.0)
 				rect(dot.x-2,dot.y-2,4,4,Color(c,.45))
 			draw_arc(p.target,19,0,TAU,16,Color(c,.7),2)
-	for c in pickups: draw_coin(c.pos)
+	for c in pickups: draw_coin(c.pos+Vector2(0,sin(clock*4+c.pos.x)*2))
 	for g in garbage: draw_garbage(g)
 	for v in vehicles: draw_vehicle(v)
 	for sp in spits:
@@ -864,21 +898,18 @@ func draw_world() -> void:
 		else:
 			draw_line(shot.pos,shot.pos+Vector2(0,22),YELLOW,3)
 			draw_trash(shot.pos)
-	cyclist(Vector2(player_x,450),1.5,state=="play")
+	cyclist(Vector2(player_x,450-18*sin(PI*jump_flash/.5)),1.5,state=="play")
+	draw_pickup_fx()
 	if equipped.has(4) and shield_cooldown <= 0: draw_arc(Vector2(player_x,435),31,0,TAU,24,Color("9ee9dd"),3)
 	if umbrella_time > 0:
 		draw_line(Vector2(player_x,441),Vector2(player_x,405),CREAM,4)
 		draw_colored_polygon(PackedVector2Array([Vector2(player_x-39,414),Vector2(player_x-27,391),Vector2(player_x,380),Vector2(player_x+27,391),Vector2(player_x+39,414)]),RED)
 		draw_line(Vector2(player_x,380),Vector2(player_x,414),CREAM,3)
-	if equipped.has(6): rect(player_x+16,412,10,21,TEAL); rect(player_x+13,408,16,7,CREAM)
+	if has_blaster(): rect(player_x+16,412,10,21,TEAL); rect(player_x+13,408,16,7,CREAM)
 	if equipped.has(8):
 		draw_line(Vector2(player_x-12,445),Vector2(player_x-32,422),INK,6)
 		draw_line(Vector2(player_x-32,422),Vector2(player_x-27,404),YELLOW,5)
 		draw_arc(Vector2(player_x-27,400),7,0,PI,8,YELLOW,3)
-	if state == "dead" and result_reason=="spit":
-		for i in 10:
-			var p := death_pos+Vector2(cos(i*2.3),sin(i*2.3))*float(12+i*4)
-			rect(p.x,p.y,8,8,GREEN)
 	# Subtle pixel grain on the tarmac.
 	for i in 30:
 		rect(280+fmod(i*137,398),fmod(i*97+road_scroll,600),3,2,Color(0.7,0.6,0.4,.09))
@@ -923,7 +954,7 @@ func draw_hud() -> void:
 	var seconds := maxi(0,ceili(time_limit-elapsed))
 	txt("%02d:%02d" % [seconds/60,seconds%60],524,56,25,YELLOW if seconds>30 else RED)
 	txt("衣服状态",663,28,12,Color("a7beb6"))
-	txt("惨 不 忍 睹" if state=="dead" and result_reason=="spit" else "一 尘 不 染",663,53,18,RED if state=="dead" else GREEN)
+	txt("一 尘 不 染",663,53,18,GREEN)
 	if save_warning: txt("浏览器存储不可用，本次进度仅在页面内保留",290,81,12,RED)
 	# Small side readouts keep the road fully visible.
 	panel(Rect2(16,91,166,131),INK)
@@ -934,7 +965,8 @@ func draw_hud() -> void:
 	panel(Rect2(778,91,165,153),INK)
 	txt("通勤小账本",793,118,14,YELLOW)
 	txt("惊险闪避  %02d" % near_misses,793,148,16)
-	txt("金币   %d" % coins,793,176,16)
+	draw_coin(Vector2(804,170),.6)
+	txt(str(coins),824,179,24,YELLOW if wallet_flash>0 else CREAM)
 	txt("第 %d 次出门" % attempts,793,205,13,GREEN)
 	txt("通勤第 %d 天" % (day+1),793,228,12,CREAM)
 	panel(Rect2(778,257,165,112),INK)
@@ -943,8 +975,9 @@ func draw_hud() -> void:
 	if equipped.has(4): defense = "护盾 " + ("就绪" if shield_cooldown <= 0 else "%.1fs" % shield_cooldown)
 	if equipped.has(5): defense = "雨伞 " + ("E 撑开" if umbrella_cooldown <= 0 else "%.1fs" % umbrella_cooldown)
 	txt(defense,793,305,14)
-	txt("泡泡炮 " + ("F 发射" if attack_cooldown <= 0 else "%.1fs" % attack_cooldown) if equipped.has(6) else "未装备攻击",793,329,14,GREEN)
+	txt("泡泡炮 " + ("F 发射" if attack_cooldown <= 0 else "%.1fs" % attack_cooldown) if has_blaster() else "未装备攻击",793,329,14,GREEN)
 	txt("回投 " + ("就绪" if recycler_cooldown <= 0 else "%.1fs" % recycler_cooldown) if equipped.has(8) else ("磁铁吸金中" if equipped.has(7) else "未装备辅助"),793,352,13,YELLOW)
+	draw_perk_hud()
 	rect(0,527,960,73,DARK)
 	txt("体力",23,550,13,CREAM)
 	rect(23,561,159,10,Color("355259")); rect(23,561,159*stamina/100,10,GREEN if stamina>25 else RED)
@@ -963,15 +996,15 @@ func draw_brief() -> void:
 	centered(["今天的 KPI：衬衫保持出厂设置。", "人多不是问题，问题是他们都想清嗓子。", "风会吹弯弹道。看预警，也看风向。", "路上有坑，老板的饼也不小。", "四天都过来了，别在公司门口破防。 "][day],233,17)
 	centered("← A / D → 转向     W / ↑ 冲刺     S / ↓ 刹车",285,17)
 	centered("空格 响铃    E 撑伞    F 泡泡炮    P 暂停",318,17)
-	centered("捡金币买装备！失败保留金币，本周买断拥有。",354,16)
-	centered("护盾 / 雨伞挡痰，泡泡炮停嘴，机械臂自动回投。",381,16)
+	centered("局外买装备永久保留，局内三选一临时强化。",354,16)
+	centered("每局结束自动回改装铺，花金币再变强。",381,16)
 	centered("垃圾落地后撞到即失败！机械臂冷却时仍需躲避。",407,15)
 	centered("平安到公司，才是今天的胜利。",436,13,TEAL)
 
 func draw_help() -> void:
 	panel(Rect2(200,59,560,505))
 	centered("通勤生存手册",109,32)
-	var lines := ["① 概率决定路人是否吐痰，真实弹道决定命中。", "② 清嗓和虚线是预警：赶紧离开瞄准位置。", "③ 刹车能等危险飞过；冲刺消耗体力。", "④ 空格响铃；装备后 E 撑伞、F 泡泡炮。", "⑤ 公园路长人少，施工近道人多路短。", "⑥ 垃圾撞到即失败！机械臂可自动捡起回投。", "离开页面自动暂停；进度保存在当前浏览器。"]
+	var lines := ["① 概率决定路人是否吐痰，真实弹道决定命中。", "② 清嗓和虚线是预警：赶紧离开瞄准位置。", "③ 刹车能等危险飞过；冲刺消耗体力。", "④ 空格响铃；装备后 E 撑伞、F 泡泡炮。", "⑤ 局内三选一；结束回商店，临时强化清空。", "⑥ 垃圾撞到即失败！机械臂可自动捡起回投。", "离开页面自动暂停；进度保存在当前浏览器。"]
 	for i in lines.size(): centered(lines[i],160+i*34,16)
 
 func draw_route() -> void:
@@ -985,52 +1018,32 @@ func draw_route() -> void:
 	txt("少骑约 4% 路程",514,351,16,TEAL)
 	centered("老板：选哪条都行，反正别迟到。",480,15)
 
-func draw_dead() -> void:
-	panel(Rect2(242,78,476,463))
-	rect(242,78,476,11,RED)
-	centered("通 勤 事 故 小 票",130,20)
-	centered("今天刚洗的……" if result_reason=="spit" else ("垃圾：这锅你背？" if result_reason=="trash" else "打卡机：你迟到了。"),187,32)
-	centered("衣服：重新定义「干净」" if result_reason=="spit" else ("车轮压到垃圾，打工人原地放假。" if result_reason=="trash" else "衬衫很干净，全勤没了。"),230,17,TEAL)
-	rect(282,252,396,2,Color("d6ccb0"))
-	txt("已骑路程",287,288,17,INK); txt("%d%%" % int(distance/target_distance*100),590,288,18,INK)
-	txt("惊险闪避",287,324,17,INK); txt("%d 次" % near_misses,590,324,18,INK)
-	txt("本趟金币已保留",287,360,17,INK); txt("+%d 金" % run_coins,581,360,18,INK)
-	centered("换条走位再来，已经完成的日期不会丢。",402,15,TEAL)
-
-func draw_clear() -> void:
-	panel(Rect2(220,90,520,430))
-	centered("滴！打卡成功",161,37)
-	centered("衣服比工资还干净。",203,20,TEAL)
-	centered("打卡奖金  +%d 金" % award,277,36)
-	centered("捡币 %d 金 · 防御 %d 次 · 回投 %d 次" % [run_coins,blocks,returns],327,18)
-	centered("%d / 5 天 已完成" % (day+1),381,22,TEAL)
-
 func draw_shop() -> void:
-	panel(Rect2(38,26,884,554))
-	centered("文明通勤 · 改装铺",68,30)
-	centered("金币 %d  ·  买断拥有，换装免费  ·  每类装备限一件" % coins,101,16,TEAL)
+	panel(Rect2(38,22,884,560))
+	txt("下班改装铺",65,63,30,INK)
+	txt("局外成长 · 装备永久拥有",66,89,15,TEAL)
+	draw_coin(Vector2(758,61),.9)
+	txt(str(coins),782,72,29,INK)
+	var summary := "出门前先改装。买断拥有，换装免费；同类装备限一件。"
+	if not last_result.is_empty():
+		var title: String = {"arrival":"打卡成功！","spit":"衣服中招了。","trash":"垃圾翻车了。","late":"迟到啦。","quit":"本局已结束。"}.get(last_result.reason,"本局结束。")
+		summary = "%s 本局收获 %d + 奖金 %d 金，已入钱包。临时强化已清空。" % [title,last_result.earned,last_result.bonus]
+		if wins == 5: summary = "全勤达成！奖金已入账。带上永久装备，开启新一周。"
+	rect(54,99,852,28,INK)
+	txt(summary,66,119,14,YELLOW)
 	for i in Equipment.ITEMS.size():
 		var item: Dictionary = Equipment.ITEMS[i]
 		var x := 54+(i%4)*216
-		var y := 122+(i/4)*190
-		panel(Rect2(x,y,206,181),Color("d4e2c3") if equipped.has(i+1) else Color("e8dfc4"))
-		txt(item.slot + (" / 已装备" if equipped.has(i+1) else (" / 已拥有" if owned.has(i+1) else " / %d 金" % item.price)),x+12,y+25,14,TEAL)
-		txt(item.name,x+12,y+61,20,INK)
-		txt(item.lines[0],x+12,y+92,14,INK)
-		txt(item.lines[1],x+12,y+116,14,TEAL)
-	centered("路上捡币、擦弹奖励、打卡奖金；失败保留金币。高级回投：让乱扔的人自己收拾！",510,14,TEAL)
-	if toast_time>0: centered(toast,119,13,RED)
-
-func draw_final() -> void:
-	panel(Rect2(200,65,560,477),YELLOW)
-	centered("全 勤 英 雄",134,42)
-	centered("五天通勤，滴痰不沾。",180,22)
-	centered("恭喜获得公司神秘大奖",238,18)
-	panel(Rect2(275,264,410,115),CREAM)
-	centered("自愿加班体验券",307,30)
-	centered("有效期：永久   /   不可转让   /   谢谢配合",348,14)
-	centered("主角：……我明天坐公交。",405,18)
-	centered("全勤达成 · 谢谢你认真上这个离谱的班",512,15)
+		var y := 136+(i/4)*180
+		panel(Rect2(x,y,206,170),Color("dbe7ce") if equipped.has(i+1) else Color("e8dfc4"))
+		rect(x+5,y+5,196,24,TEAL if equipped.has(i+1) else INK)
+		txt(item.slot + (" / 已装备" if equipped.has(i+1) else (" / 已拥有" if owned.has(i+1) else " / %d 金" % item.price)),x+12,y+23,13,CREAM)
+		draw_item_icon(i+1,Vector2(x+27,y+61),.85)
+		txt(item.name,x+55,y+66,17,INK)
+		txt(item.lines[0],x+12,y+99,14,INK)
+		txt(item.lines[1],x+12,y+121,13,TEAL)
+	centered("金币与装备永久保留  /  临时强化只在当局生效",516,15,TEAL)
+	if toast_time>0: centered(toast,502,13,RED)
 
 func earn_coins(amount: int) -> void:
 	coins = mini(9999,coins+amount)
@@ -1042,16 +1055,18 @@ func update_collectibles(dt: float, old_player: Vector2) -> void:
 	if coin_timer <= 0:
 		coin_timer = 4.0
 		var x: float = Traffic.LANES[rng.randi_range(0,2)]
-		for i in 3: pickups.append({"pos":Vector2(x,-25-i*30),"value":3,"taken":false})
+		for i in 3: pickups.append({"pos":Vector2(x,-25-i*42),"value":3,"taken":false})
 	var player := Vector2(player_x,450)
 	for c in pickups:
 		var old: Vector2 = c.pos
 		c.pos.y += speed*dt
-		if equipped.has(7) and c.pos.distance_to(player) < 110:
+		if c.pos.distance_to(player) < (110 if equipped.has(7) else 0)+perk_level(5)*65:
 			c.pos = c.pos.move_toward(player,dt*420)
 		if Rules.segment_distance(Vector2.ZERO,old-old_player,c.pos-player) < 23:
 			c.taken = true
-			earn_coins(c.value)
+			earn_coins(c.value+perk_level(3)*2)
+			particles.append({"pos":c.pos,"life":.75,"value":c.value+perk_level(3)*2})
+			wallet_flash = .4
 			sfx("coin")
 	pickups = pickups.filter(func(c): return not c.taken and c.pos.y < 640)
 
@@ -1061,24 +1076,31 @@ func block_spit() -> bool:
 		sfx("shield")
 		return true
 	if equipped.has(4) and shield_cooldown <= 0:
-		shield_cooldown = 18
+		shield_cooldown = perk_cooldown(18)
 		blocks += 1
 		sfx("shield")
 		notify("护盾挡下了！18秒充能，先靠走位。",2)
+		return true
+	if spare_guards > 0:
+		spare_guards -= 1
+		blocks += 1
+		sfx("shield")
+		notify("防污贴纸替你挡住了！",2)
 		return true
 	return false
 
 func use_umbrella() -> void:
 	if state != "play" or not equipped.has(5) or umbrella_cooldown > 0: return
 	umbrella_time = 2.5
-	umbrella_cooldown = 8
+	umbrella_cooldown = perk_cooldown(8)
 	sfx("shield")
 	notify("打工人结界！挡痰，不挡地上垃圾。",2)
 
 func fire_weapon() -> void:
-	if state != "play" or not equipped.has(6) or attack_cooldown > 0: return
-	attack_cooldown = 3
-	shots.append({"kind":"bubble","pos":Vector2(player_x,409),"life":1.6})
+	if state != "play" or not has_blaster() or attack_cooldown > 0: return
+	attack_cooldown = perk_cooldown(3)
+	for dx in ([-95.0,0.0,95.0] if equipped.has(6) and perk_level(6)>0 else [0.0]):
+		shots.append({"kind":"bubble","pos":Vector2(player_x,409),"life":1.6,"dx":dx})
 	sfx("shoot")
 
 func silence_vehicle(v: Dictionary, seconds: float) -> void:
@@ -1106,6 +1128,7 @@ func update_shots(dt: float) -> void:
 				notify("垃圾已退回原车！清洁奖励 +12 金。",2.5)
 		else:
 			shot.pos.y += (speed-520)*dt
+			shot.pos.x += shot.get("dx",0)*dt
 			for sp in spits:
 				if sp.life > 0 and Rules.segment_distance(sp.pos,old,shot.pos) < 28:
 					sp.life = 0
@@ -1138,20 +1161,42 @@ func update_garbage(dt: float, old_player: Vector2) -> void:
 		else: g.pos.y += speed*dt
 		if equipped.has(8) and recycler_cooldown <= 0 and g.pos.y <= 480 and Rules.segment_distance(Vector2.ZERO,old-old_player,g.pos-player) < 105:
 			g.caught = true
-			recycler_cooldown = 7
+			recycler_cooldown = perk_cooldown(7)
 			shots.append({"kind":"return","pos":g.pos,"source":g.source,"life":4.0})
 			sfx("return")
 			notify("机械臂：谁扔的？请签收原件！",2)
 		elif not was_airborne and Rules.segment_distance(Vector2.ZERO,old-old_player,g.pos-player) < 27:
-			fail_run("trash")
-			return
+			if jump_charges > 0:
+				jump_charges -= 1
+				g.caught = true
+				jump_flash = .5
+				sfx("near")
+				notify("兔子跳！逃过一次垃圾翻车。",2)
+			else:
+				fail_run("trash")
+				return
 	garbage = garbage.filter(func(g): return not g.caught and g.pos.y < 640)
 
-func draw_coin(pos: Vector2) -> void:
-	rect(pos.x-7,pos.y-10,14,20,Color("be8a36"))
-	rect(pos.x-10,pos.y-6,20,12,YELLOW)
-	rect(pos.x-6,pos.y-7,12,14,YELLOW)
-	rect(pos.x-2,pos.y-5,3,10,CREAM)
+func draw_coin(pos: Vector2, zoom := 1.0) -> void:
+	var p := pos.round()
+	draw_set_transform(p,0,Vector2.ONE*zoom)
+	rect(-10,15,22,4,Color(0,0,0,.25))
+	# Stepped circular rim stays readable against the sandy road at native scale.
+	for yy in range(-14,15,2):
+		var half := int(sqrt(maxf(0,196-yy*yy))/2)*2
+		rect(-half,yy,half*2+2,2,Color("704323"))
+	for yy in range(-12,13,2):
+		var half := int(sqrt(maxf(0,144-yy*yy))/2)*2
+		rect(-half,yy,half*2+2,2,Color("ffda4a") if yy<5 else Color("e59a27"))
+	rect(-6,-12,14,2,Color("fff5ba")); rect(-10,-8,3,9,Color("fff5ba"))
+	var glyph := ["01110","11000","11000","01110","00011","00011","11110"]
+	for y in glyph.size():
+		for x in 5:
+			if glyph[y][x]=="1": rect(-5+x*2,-7+y*2,2,2,Color("98601d"))
+	rect(-1,-10,2,19,Color("98601d"))
+	if fmod(clock+pos.y*.003,2)<.65:
+		rect(8,-16,3,9,CREAM); rect(5,-13,9,3,CREAM)
+	draw_set_transform(Vector2.ZERO)
 
 func draw_trash(pos: Vector2) -> void:
 	rect(pos.x-15,pos.y+8,30,7,Color(0,0,0,.25))
@@ -1167,3 +1212,153 @@ func draw_garbage(g: Dictionary) -> void:
 		draw_line(g.target-Vector2(10,10),g.target+Vector2(10,10),RED,3)
 		draw_line(g.target+Vector2(10,-10),g.target+Vector2(-10,10),RED,3)
 	draw_trash(g.pos)
+
+func perk_level(id: int) -> int:
+	return int(buffs.get(id,0))
+
+func perk_cooldown(base: float) -> float:
+	return base*pow(.8,perk_level(7))
+
+func has_blaster() -> bool:
+	return equipped.has(6) or perk_level(6)>0
+
+func reset_perks() -> void:
+	buffs.clear(); perk_choices.clear()
+	perk_stage=0;spare_guards=0;jump_charges=0;jump_flash=0
+
+func offer_perks() -> void:
+	if state != "play" or perk_stage >= 4: return
+	var pool: Array[int] = []
+	for i in Perks.ITEMS.size():
+		if perk_level(i) >= Perks.ITEMS[i].max: continue
+		if i==7 and not (equipped.has(4) or equipped.has(5) or equipped.has(8) or has_blaster()): continue
+		pool.append(i)
+	perk_choices.clear()
+	for i in mini(3,pool.size()):
+		var index := rng.randi_range(0,pool.size()-1)
+		perk_choices.append(pool[index]);pool.remove_at(index)
+	perk_stage += 1
+	stop_audio()
+	change_state("upgrade")
+
+func choose_perk(index: int) -> void:
+	if state != "upgrade" or index < 0 or index >= perk_choices.size(): return
+	var id: int = perk_choices[index]
+	buffs[id] = perk_level(id)+1
+	if id==1: stamina=100
+	if id==2: spare_guards+=1
+	if id==8: jump_charges+=1
+	perk_choices.clear()
+	change_state("play")
+	start_music();sfx("win")
+	notify("获得「%s」！仅本局生效。"%Perks.ITEMS[id].name,3)
+
+func update_pickup_fx(dt: float) -> void:
+	wallet_flash=maxf(0,wallet_flash-dt)
+	jump_flash=maxf(0,jump_flash-dt)
+	for fx in particles:
+		fx.life-=dt
+		fx.pos.y-=dt*46
+	particles=particles.filter(func(fx):return fx.life>0)
+
+func draw_pickup_fx() -> void:
+	for fx in particles:
+		var alpha := minf(1,fx.life*3)
+		rect(fx.pos.x-18,fx.pos.y-37,47,27,Color(INK,alpha*.95))
+		txt("+%d"%fx.value,fx.pos.x-12,fx.pos.y-17,21,Color(YELLOW,alpha))
+		for i in 5:
+			var offset: Vector2 = Vector2(cos(i*TAU/5),sin(i*TAU/5))*(.75-fx.life)*50
+			rect(fx.pos.x+offset.x,fx.pos.y+offset.y,4,4,Color(CREAM,alpha))
+
+func draw_perk_hud() -> void:
+	if buffs.is_empty(): return
+	panel(Rect2(16,243,166,225),INK)
+	txt("本局强化  %d/4"%perk_stage,29,269,14,YELLOW)
+	var row := 0
+	for id in buffs:
+		var name: String = Perks.ITEMS[id].name
+		var suffix := " ×%d"%perk_level(id)
+		if id==2: suffix=" %d次"%spare_guards
+		if id==8: suffix=" %d次"%jump_charges
+		rect(29,289+row*37,5,20,Color(Perks.ITEMS[id].color))
+		txt(name+suffix,40,305+row*37,13,CREAM)
+		row+=1
+	txt("结束后清空",29,452,12,Color("a7beb6"))
+
+func draw_upgrade() -> void:
+	panel(Rect2(78,60,804,475),Color("fff3d1"))
+	centered("通勤奇遇",111,34)
+	centered("%s · 三选一" % ("出门的好运气" if perk_stage==1 else "路上的小惊喜"),149,19,TEAL)
+	centered("本局有效 · 选择时已暂停 · 数字 1 / 2 / 3 或点击",179,14,TEAL)
+	for i in perk_choices.size():
+		var id: int = perk_choices[i]
+		var perk: Dictionary = Perks.ITEMS[id]
+		var x := 115+i*244
+		panel(Rect2(x,202,230,276),Color("e8dfc4"))
+		rect(x+6,208,218,32,Color(perk.color))
+		txt(perk.tag+" / 本局强化",x+16,231,14,INK)
+		draw_item_icon(perk.icon,Vector2(x+115,281),1.6)
+		txt(perk.name,x+20,335,25,INK)
+		txt(perk.desc[0],x+20,370,16,INK)
+		txt(perk.desc[1],x+20,396,14,TEAL)
+	centered("局内搭配打法，局外积累装备。每次出门都有新花样。",511,15,TEAL)
+
+func draw_item_icon(id: int, pos: Vector2, zoom := 1.0) -> void:
+	if id==0:
+		draw_coin(pos,zoom)
+		return
+	draw_set_transform(pos,0,Vector2.ONE*zoom)
+	match id:
+		1:
+			for i in 8:
+				var p := Vector2(cos(i*PI/4),sin(i*PI/4))*14
+				rect(p.x-3,p.y-3,6,6,TEAL)
+			draw_arc(Vector2.ZERO,10,0,TAU,12,INK,6)
+			rect(-3,-3,6,6,YELLOW)
+		2:
+			draw_line(Vector2(-16,-11),Vector2(10,-11),INK,6)
+			draw_line(Vector2(8,-11),Vector2(-7,13),TEAL,5)
+			draw_line(Vector2(-7,13),Vector2(-17,15),INK,5)
+			rect(-3,-13,6,6,YELLOW)
+		3:
+			draw_line(Vector2(4,17),Vector2(4,0),INK,4)
+			rect(-12,-16,27,20,INK);rect(-9,-13,21,14,Color("90cfdd"))
+			rect(-6,-11,10,3,CREAM)
+		4:
+			draw_colored_polygon(PackedVector2Array([Vector2(-15,-15),Vector2(15,-15),Vector2(13,7),Vector2(0,19),Vector2(-13,7)]),INK)
+			draw_colored_polygon(PackedVector2Array([Vector2(-11,-11),Vector2(11,-11),Vector2(9,5),Vector2(0,13),Vector2(-9,5)]),Color("78b6df"))
+			rect(-2,-7,4,16,CREAM);rect(-7,-1,14,4,CREAM)
+		5:
+			draw_line(Vector2.ZERO,Vector2(0,16),INK,4)
+			draw_colored_polygon(PackedVector2Array([Vector2(-19,0),Vector2(-12,-13),Vector2(0,-18),Vector2(12,-13),Vector2(19,0)]),RED)
+			draw_line(Vector2(0,-18),Vector2.ZERO,CREAM,3)
+		6:
+			rect(-14,-8,28,17,INK);rect(-11,-5,22,11,TEAL)
+			rect(-6,8,8,10,INK);rect(12,-11,7,23,Color("78b6df"))
+			draw_arc(Vector2(24,-5),5,0,TAU,10,TEAL,2)
+		7:
+			rect(-14,-14,8,27,RED);rect(6,-14,8,27,Color("78b6df"));rect(-14,9,28,8,INK)
+			rect(-14,-15,8,7,CREAM);rect(6,-15,8,7,CREAM)
+		8:
+			draw_line(Vector2(-15,15),Vector2(-6,-2),INK,8)
+			draw_line(Vector2(-6,-2),Vector2(9,-10),YELLOW,7)
+			draw_arc(Vector2(12,-12),9,0,PI*1.5,8,INK,4)
+			rect(-19,12,16,6,TEAL)
+		9:
+			rect(-9,-15,18,29,INK);rect(-6,-12,12,22,RED)
+			rect(-4,-18,8,4,CREAM);rect(-4,-5,8,5,CREAM)
+		10:
+			rect(-12,-7,24,21,CREAM);rect(-11,-23,7,20,CREAM);rect(5,-23,7,20,CREAM)
+			rect(-9,-20,3,12,RED);rect(7,-20,3,12,RED)
+			rect(-7,-2,4,5,INK);rect(4,-2,4,5,INK);rect(-2,5,5,4,RED)
+		11:
+			for i in 3:
+				rect(-19+i*4,-12+i*11,29-i*2,4,TEAL)
+				draw_arc(Vector2(10+i*2,-13+i*11),6,-PI/2,PI/2,8,TEAL,3)
+		12:
+			rect(-12,-16,24,32,INK);rect(-5,-20,10,5,INK);rect(-9,-13,18,26,GREEN)
+			draw_colored_polygon(PackedVector2Array([Vector2(1,-10),Vector2(-6,2),Vector2(0,2),Vector2(-2,12),Vector2(7,-2),Vector2(2,-2)]),CREAM)
+		13:
+			rect(-12,-13,15,27,TEAL);rect(-12,5,30,12,TEAL);rect(-12,14,31,4,INK)
+			rect(-7,-9,9,3,CREAM);rect(-7,-2,9,3,CREAM)
+	draw_set_transform(Vector2.ZERO)

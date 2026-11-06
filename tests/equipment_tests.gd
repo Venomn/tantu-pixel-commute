@@ -10,7 +10,7 @@ func check(ok: bool, label: String) -> void:
 	print(("PASS: " if ok else "FAIL: ")+label)
 func _initialize() -> void: call_deferred("run")
 func reset() -> void:
-	game.new_game("quick"); game.start_run()
+	game.saved={}; game.new_game("quick"); game.start_run()
 	game.spawn_timer=100;game.traffic_timer=100;game.obstacle_timer=100;game.coin_timer=100
 func spit() -> void:
 	game.spits.append({"pos":Vector2(game.player_x,450),"vel":Vector2(0,-game.speed),"life":1.0,"near":false})
@@ -30,7 +30,7 @@ func run() -> void:
 	check(game.day==3 and game.coins==245 and game.wins==3,"v1 disk fixture preserves campaign and wallet")
 	check(game.owned==[2] and game.equipped==[2] and game.gear==2,"v1 paid gear migrates into owned and equipped inventory")
 	game.save_game();game.load_save();game.resume_save()
-	check(game.saved.version==2 and game.owned==[2],"migration writes explicit v2 and reloads idempotently")
+	check(game.saved.version==3 and game.owned==[2],"migration writes explicit v3 and reloads idempotently")
 	var duplicate := {"version":2,"day":1,"mode":"quick","coins":90,"owned":[1,1,2,4,5],"equipped":[1,2,4,5,8]}
 	var cleaned := Rules.clean_save(duplicate)
 	check(cleaned.owned==[1,2,4,5] and cleaned.equipped==[2,5],"ambiguous v2 input deduplicates and only equips owned item per slot")
@@ -43,7 +43,7 @@ func run() -> void:
 	check(game.coins==80 and game.owned.is_empty(),"new campaign gives starter budget and clean inventory")
 	game.buy_gear(1)
 	check(game.coins==80 and game.owned.is_empty(),"cannot purchase through gameplay entry point")
-	game.open_shop("brief");game.buy_gear(8)
+	game.fail_run("late");game.buy_gear(8)
 	check(game.coins==80 and not game.owned.has(8),"insufficient funds never grants equipment")
 	game.buy_gear(0);game.buy_gear(99)
 	check(game.coins==80,"invalid equipment ID cannot mutate wallet")
@@ -72,7 +72,7 @@ func run() -> void:
 	spit();game.update_game(.01)
 	check(game.state=="play" and game.blocks==1 and game.shield_cooldown>17,"shield prevents first fatal spit and enters cooldown")
 	spit();game.update_game(.01)
-	check(game.state=="dead","shield cooldown leaves next spit lethal")
+	check(game.state=="shop","shield cooldown leaves next spit lethal")
 	reset();game.equipped=[4];game.shield_cooldown=.01
 	spit();game.update_game(.02)
 	check(game.state=="play" and game.blocks==1,"shield recharges through simulation time")
@@ -81,7 +81,7 @@ func run() -> void:
 	spit();spit();game.update_game(.01)
 	check(game.state=="play" and game.blocks==2 and game.umbrella_cooldown<8,"active umbrella blocks multiple spits and cannot be spam-reset")
 	game.umbrella_time=0;spit();game.update_game(.01)
-	check(game.state=="dead","umbrella expiry restores lethal spit collision")
+	check(game.state=="shop","umbrella expiry restores lethal spit collision")
 	reset();game.use_umbrella();game.fire_weapon()
 	check(game.umbrella_time==0 and game.shots.is_empty(),"unowned abilities cannot activate")
 	reset();game.equipped=[5,6,8];game.use_umbrella();game.fire_weapon();game.recycler_cooldown=4
@@ -113,12 +113,12 @@ func run() -> void:
 	check(game.garbage[0].flight==0,"garbage lands as a persistent road hazard")
 	reset();car=source_car();trash(Vector2(480,300),car)
 	game.speed=900;game.update_garbage(.3,Vector2(480,450))
-	check(game.state=="dead" and game.result_reason=="trash","swept trash collision detects fast pass-through as failure")
+	check(game.state=="shop" and game.result_reason=="trash","swept trash collision detects fast pass-through as failure")
 	reset();car=source_car();trash(Vector2(450,450),car);game.player_x=500
 	game.update_garbage(.001,Vector2(400,450))
-	check(game.state=="dead","lateral player crossing cannot tunnel through stationary garbage")
+	check(game.state=="shop","lateral player crossing cannot tunnel through stationary garbage")
 	reset();game.equipped=[4,5];game.use_umbrella();trash(Vector2(480,450),source_car());game.update_garbage(.01,Vector2(480,450))
-	check(game.state=="dead","spit defense does not incorrectly protect from road garbage")
+	check(game.state=="shop","spit defense does not incorrectly protect from road garbage")
 	reset();game.equipped=[8];car=source_car();game.vehicles.assign([car]);trash(Vector2(480,370),car)
 	game.update_garbage(.01,Vector2(480,450))
 	check(game.garbage.is_empty() and game.shots.size()==1 and game.recycler_cooldown==7,"mechanical arm automatically catches imminent trash")
@@ -128,7 +128,7 @@ func run() -> void:
 	game.update_shots(.5)
 	check(game.coins==92,"completed return cannot award twice")
 	trash(Vector2(480,450),car);game.update_garbage(.01,Vector2(480,450))
-	check(game.state=="dead","mechanical arm cooldown still requires dodging next trash")
+	check(game.state=="shop","mechanical arm cooldown still requires dodging next trash")
 	reset();game.equipped=[8];car=source_car();trash(Vector2(480,450),car)
 	game.update_garbage(.01,Vector2(480,450))
 	check(game.state=="play" and game.garbage.is_empty(),"ready arm intercepts before fatal contact boundary")
@@ -140,7 +140,7 @@ func run() -> void:
 	check(game.garbage[0].pos==before,"pause freezes road garbage")
 	game.save_path="user://missing_qa_directory/commute.json"
 	game.save_game()
-	check(game.save_warning and game.saved.version==2,"storage failure remains playable and displays persistence warning")
+	check(game.save_warning and game.saved.version==3,"storage failure remains playable and displays persistence warning")
 	if original:
 		f=FileAccess.open("user://qa_equipment_tests.json",FileAccess.WRITE);f.store_string(original);f.close()
 	elif FileAccess.file_exists("user://qa_equipment_tests.json"): DirAccess.remove_absolute("user://qa_equipment_tests.json")

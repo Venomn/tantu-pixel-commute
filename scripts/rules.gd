@@ -21,7 +21,7 @@ static func segment_distance(point: Vector2, a: Vector2, b: Vector2) -> float:
 	return point.distance_to(a + delta * clampf((point - a).dot(delta) / delta.length_squared(), 0.0, 1.0))
 
 static func clean_save(data: Variant) -> Dictionary:
-	if not data is Dictionary or (data.get("version") != 1 and data.get("version") != 2): return {}
+	if not data is Dictionary or (data.get("version") != 1 and data.get("version") != 2 and data.get("version") != 3): return {}
 	if not data.get("day") is float and not data.get("day") is int: return {}
 	if data.get("mode") not in ["quick", "week"]: return {}
 	for key in ["coins", "gear", "wins"]:
@@ -47,6 +47,23 @@ static func clean_save(data: Variant) -> Dictionary:
 	old_gear = 0
 	for id in equipped:
 		if id <= 3: old_gear = id
-	return {"version": 2, "owned": owned, "equipped": equipped, "day": clampi(int(data.day), 0, 4), "mode": data.mode,
+	var weeks: Variant = data.get("weeks",0)
+	if not (weeks is int or weeks is float) or not is_finite(float(weeks)): return {}
+	var phase := "brief"
+	var result: Dictionary = {}
+	if data.version == 3:
+		phase = str(data.get("phase")) if data.get("phase") in ["shop","run"] else "brief"
+		var raw: Variant = data.get("last_result",{})
+		if not raw is Dictionary: return {}
+		if not raw.is_empty():
+			if raw.get("reason") not in ["arrival","spit","trash","late","quit"]: return {}
+			for key in ["day","earned","bonus","progress"]:
+				var value: Variant = raw.get(key)
+				if not (value is int or value is float) or not is_finite(float(value)): return {}
+			result = {"reason":raw.reason,"day":clampi(int(raw.day),0,4),"earned":clampi(int(raw.earned),0,9999),"bonus":clampi(int(raw.bonus),0,9999),"progress":clampi(int(raw.progress),0,100)}
+	for key in ["run_earned","run_progress"]:
+		var value: Variant = data.get(key,0)
+		if not (value is int or value is float) or not is_finite(float(value)): return {}
+	return {"run_earned":clampi(int(data.get("run_earned",0)),0,9999),"run_progress":clampi(int(data.get("run_progress",0)),0,100),"version": 3,"phase":phase,"last_result":result,"weeks":clampi(int(weeks),0,999), "owned": owned, "equipped": equipped, "day": clampi(int(data.day), 0, 4), "mode": data.mode,
 		"coins": clampi(int(data.get("coins", 0)), 0, 9999), "gear": old_gear,
 		"wins": clampi(int(data.get("wins", 0)), 0, 5)}

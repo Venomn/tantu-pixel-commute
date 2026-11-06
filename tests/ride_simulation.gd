@@ -25,28 +25,26 @@ func run() -> void:
 	game.save_path="user://qa_ride_simulation.json";root.add_child(game)
 	game.set_process(false)
 	game.muted=true
+	game.saved={}
 	game.new_game("quick" if OS.get_cmdline_user_args().has("--quick") else "week")
 	game.rng.seed=91822
-	game.start_run()
+	game.begin_run()
 	attempts=1
 	for frame in 360000:
 		if game.state=="route": game.choose_route("park")
-		elif game.state=="dead":
-			failures+=1
+		elif game.state=="upgrade":
+			var picked := 0
+			for wanted in [2,8,0,1,6,7,5,3,4]:
+				if game.perk_choices.has(wanted): picked=game.perk_choices.find(wanted);break
+			game.choose_perk(picked)
+		elif game.state=="shop":
 			tally()
-			print("DEATH: day=",game.day," time=",snappedf(game.elapsed,.1)," x=",game.player_x," traffic=",game.traffic_stats," shots=",game.spits)
-			if failures>30: break
+			if game.last_result.reason=="arrival": completed+=1
+			else: failures+=1
+			print("SETTLEMENT: ",game.last_result," owned=",game.owned)
+			if completed==5 or failures>30: break
 			buy_available()
-			game.start_run()
-			attempts+=1
-		elif game.state=="clear":
-			completed+=1
-			tally()
-			print("ARRIVAL: day=",game.day," elapsed=",snappedf(game.elapsed,.1)," throws=",game.total_throws," near=",game.near_misses," traffic=",game.traffic_stats)
-			game.advance_day()
-			if game.state=="final": break
-			buy_available()
-			game.start_run()
+			game.depart_shop()
 			attempts+=1
 		if game.state!="play": continue
 		game.fire_weapon()

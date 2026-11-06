@@ -37,7 +37,7 @@ func run() -> void:
 	var original := FileAccess.get_file_as_string("user://qa_traffic_tests.json") if FileAccess.file_exists("user://qa_traffic_tests.json") else ""
 	game=load("res://main.tscn").instantiate()
 	game.save_path="user://qa_traffic_tests.json";root.add_child(game);game.set_process(false);game.muted=true
-	game.new_game("quick");game.start_run()
+	game.saved={};game.new_game("quick");game.start_run()
 	for i in 30:
 		game.spawn_vehicle()
 		var lanes: Array[int]=[]
@@ -84,7 +84,7 @@ func run() -> void:
 	# A representative traffic-emitted projectile must obey the same one-hit rule.
 	game.spits.append({"pos":Vector2(450,450),"vel":Vector2(1000,-game.speed),"life":1.0,"near":false})
 	game.update_game(.06)
-	check(game.state=="dead","vehicle projectile path still ends run on a hit")
+	check(game.state=="shop","vehicle projectile path still ends run on a hit")
 	# Follow-distance resolution keeps an entering follower behind its leader.
 	game.start_run();game.player_x=625
 	var leader := Traffic.create(2,0,false,rng)
