@@ -19,7 +19,7 @@ func run() -> void:
 	root.size=Vector2i(359,610);game.update_layout();await process_frame
 	check(game.mobile and game.portrait and root.content_scale_size.x==480,"narrow portrait uses a full-height mobile viewport")
 	game.change_state("menu")
-	for button in game.mobile_view.root.find_children("*","Button",true,false):
+	for button in game.intro_view.actions:
 		if button.text=="开始":button.pressed.emit();break
 	check(game.state=="brief" and game.mode=="week","mobile Start button starts the same full campaign")
 	game.begin_run();game.perk_choices.assign([0]);game.choose_perk(0)
@@ -79,14 +79,14 @@ func run() -> void:
 	check(view.steering_target==400,"a second road finger cannot steal steering")
 	drag_finger(20,view.road_area.get_center()+Vector2(2000,0))
 	check(view.steering_target==677,"large swipe clamps its target to the road")
-	game.spits.assign([{"pos":Vector2(450,450),"vel":Vector2.ZERO,"life":2.0,"near":false}])
+	game.spits.assign([{"pos":Vector2(450,432),"vel":Vector2(0,-game.speed),"life":2.0,"near":false}])
 	game.update_game(.25)
-	check(game.state=="shop" and game.last_result.reason=="spit","fast road swipe still collides with a spit crossed between endpoints")
-	game.fail_run("spit")
-	check(game.state=="shop" and game.garage_view.root.visible,"mobile settlement opens the scrollable shop")
+	check(game.state=="crash" and game.last_result.reason=="spit","fast road swipe still collides with a spit crossed between endpoints")
+	game.finish_crash()
+	check(game.state=="shop" and game.garage_view.root.visible,"mobile settlement opens the one-screen shop")
 	for state in ["menu","help","brief","new_confirm","pause","route","upgrade","shop"]:
 		game.change_state(state)
-		check((game.garage_view.root.visible if state=="shop" else (game.reward_view.root.visible if state=="upgrade" else view.built_state==state and view.scroll!=null)),"mobile %s has a usable menu"%state)
+		check((game.garage_view.root.visible if state=="shop" else (game.reward_view.root.visible if state=="upgrade" else (game.intro_view.root.visible if state in ["menu","brief"] else view.built_state==state and view.scroll!=null))),"mobile %s has a usable menu"%state)
 	root.size=Vector2i(1280,720);game.update_layout();await process_frame
 	check(not game.mobile and not view.root.visible and game.scale==Vector2.ONE,"desktop restores original artwork and controls")
 	print("MOBILE RESULT: %d checks, %d failures"%[checks,failures]);quit(1 if failures else 0)

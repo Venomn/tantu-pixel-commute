@@ -19,7 +19,7 @@ func run() -> void:
 	root.size=Vector2i(1280,720) # Exercise the desktop Start entry explicitly.
 	check(Rules.probability(2,4,"shortcut") > Rules.probability(2,4,"park"),"route changes probability")
 	check(Rules.probability(2,0,"normal") > Rules.probability(0,0,"normal"),"coughing NPC carries greater risk")
-	check(Rules.duration("week",0)==390 and Rules.duration("week",4)==450,"full week contains 35 minutes base riding")
+	check(Rules.duration("week",0)==85 and Rules.duration("week",4)==105,"short rides have 85 to 105 seconds base duration")
 	check(Rules.segment_distance(Vector2(50,0),Vector2.ZERO,Vector2(100,0))==0,"swept collision catches fast projectile")
 	check(Rules.segment_distance(Vector2(50,40),Vector2.ZERO,Vector2(100,0))==40,"nearby safe projectile does not collide")
 	for value in [null,[],{}, {"version":2}, {"version":1,"day":"bad","mode":"week"}, {"version":1,"day":0,"mode":"week","coins":[]}, {"version":1,"day":0,"mode":"week","gear":"broken"}]:
@@ -33,7 +33,7 @@ func run() -> void:
 	game.muted = true
 	game.saved = {}
 	game.change_state("menu")
-	for control in game.ui.get_children():
+	for control in game.intro_view.actions:
 		if control is Button and control.text == "开始": control.pressed.emit(); break
 	check(game.state=="brief" and game.mode=="week","single Start entry selects full campaign")
 	game.start_run()
@@ -60,14 +60,14 @@ func run() -> void:
 	game.player_x=480
 	game.spits.append({"pos":Vector2(450,450),"vel":Vector2(1000,-game.speed),"life":1.0,"near":false})
 	game.update_game(.06)
-	check(game.state=="shop" and game.result_reason=="spit","actual fast projectile causes single-hit game over")
+	check(game.state=="crash" and game.result_reason=="spit","actual fast projectile causes single-hit game over")
 	game.start_run()
 	check(game.spits.is_empty() and game.near_misses==0 and game.elapsed==0,"retry removes all old hazards")
 	game.elapsed=game.time_limit
 	game.update_game(.01)
-	check(game.state=="shop" and game.result_reason=="late","late arrival fails without a spit")
+	check(game.state=="crash" and game.result_reason=="late","late arrival fails without a spit")
 	game.start_run()
-	game.distance=game.target_distance*.29
+	game.distance=game.target_distance*.36
 	game.update_game(.01)
 	check(game.state=="route" and game.route_stage==1,"first route choice triggers once")
 	var before: float = game.target_distance

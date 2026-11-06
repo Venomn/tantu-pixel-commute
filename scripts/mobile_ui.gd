@@ -29,6 +29,7 @@ func setup(owner_game) -> void:
 
 func clear_input() -> void:
 	fingers.clear(); steering_id = -999; steering_target = game.player_x
+	game.hand_lift_target=0
 	for key in game.touch: game.touch[key] = false
 
 func background(box: Rect2, color: Color) -> ColorRect:
@@ -81,8 +82,9 @@ func build() -> void:
 	var old_scroll := scroll.scroll_vertical if is_instance_valid(scroll) and built_state==game.state else 0
 	clear_input();regions.clear();control_labels.clear();scroll=null
 	for child in root.get_children(): root.remove_child(child);child.queue_free()
-	root.visible=game.mobile and game.state not in ["shop","upgrade"]
-	if not game.mobile or game.state in ["shop","upgrade"]:return
+	built_state=game.state
+	root.visible=game.mobile and game.state not in ["shop","upgrade","menu","brief","crash"]
+	if not game.mobile or game.state in ["shop","upgrade","menu","brief","crash"]:return
 	width=game.get_window().content_scale_size.x;height=game.get_window().content_scale_size.y-game.safe_top-game.safe_bottom
 	root.position=Vector2(0,game.safe_top)
 	root.size=Vector2(width,height);built_state=game.state
@@ -96,22 +98,6 @@ func build() -> void:
 	var list := VBoxContainer.new();list.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation",16);scroll.add_child(list)
 	match game.state:
-		"menu":
-			text_row("骑车上班，也是一场冒险。",list,30,Color("f2d27d"))
-			text_row("滑动转向 · 躲开咳咳 · 捡钱改装",list)
-			var picture := TextureRect.new();picture.texture=game.pixels.bike0_0
-			picture.custom_minimum_size=Vector2(100,130);picture.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;picture.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			picture.texture_filter=CanvasItem.TEXTURE_FILTER_NEAREST;list.add_child(picture)
-			action("开始",list,game.request_new_game,true)
-			if not game.saved.is_empty():action("继续 / 回到改装铺",list,game.resume_save)
-			action("玩法与声音",list,func():game.change_state("help"))
-		"brief":
-			text_row(game.Rules.DAYS[game.day],list,30,Color("f2d27d"))
-			text_row("直接在道路上左右滑动，自行车跟随移动。\n右手按住冲刺或刹车，松手恢复巡航。\n底部点击技能，可边滑动边使用。",list)
-			text_row("看清嗓预警躲痰；垃圾也要绕开。\n本局强化三选一，每局结束回商店。",list)
-			action("出门上班 →",list,game.begin_run,true)
-			action("改装铺 / 装备",list,func():game.open_shop("brief"))
-			action("主菜单",list,func():game.change_state("menu"))
 		"pause":
 			text_row("路边歇一会儿",list,32,Color("f2d27d"))
 			text_row("时间和危险都暂停了。",list)
@@ -152,7 +138,7 @@ func build_play() -> void:
 	status=label("",Rect2(16 if game.portrait else 365,77 if game.portrait else 16, width-32 if game.portrait else 400,36),22)
 	route_progress=ProgressBar.new();route_progress.position=Vector2(16,114 if game.portrait else 66);route_progress.size=Vector2(width-32,8);route_progress.show_percentage=false;root.add_child(route_progress)
 	if not game.portrait:background(Rect2(10,84,224,76),Color("293b57",.9))
-	perks=label("",Rect2(16,134 if game.portrait else 90,width-32 if game.portrait else 210,64),18,Color("293b57") if game.portrait else Color("fff3d1"))
+	perks=label("",Rect2(16,134 if game.portrait else 90,width-32 if game.portrait else 210,28 if game.portrait else 64),18,Color("293b57") if game.portrait else Color("fff3d1"))
 	route_progress.add_theme_stylebox_override("background",style(Color("526780")))
 	route_progress.add_theme_stylebox_override("fill",style(Color("a4d577")))
 	var footer: float=game.mobile_controls_height()
@@ -172,8 +158,8 @@ func build_play() -> void:
 	var right: Vector2=game.to_global(Vector2(697,0))-root.position
 	var top := 126.0 if game.portrait else 76.0
 	road_area=Rect2(left.x,top,right.x-left.x,bottom-36-top)
-	background(Rect2(16,204 if game.portrait else 160,width-32 if game.portrait else 216,54),Color("293b57",.85))
-	message=label("",Rect2(22,208 if game.portrait else 164,width-44 if game.portrait else 204,48),16,Color("f2d27d"))
+	background(Rect2(16,170 if game.portrait else 160,width-32 if game.portrait else 216,40 if game.portrait else 54),Color("293b57",.85))
+	message=label("",Rect2(22,174 if game.portrait else 164,width-44 if game.portrait else 204,34 if game.portrait else 48),16,Color("f2d27d"))
 	update_hud()
 
 func update_hud() -> void:
@@ -194,7 +180,13 @@ func update_hud() -> void:
 		if id==8:suffix=" %d次"%game.jump_charges
 		names.append(game.Perks.ITEMS[id].name+suffix)
 	perks.text=" / ".join(names)
-	message.text=game.toast if game.toast_time>0 else "看清嗓预警，提前躲开"
+	var warnings: Array[String]=[]
+	for person in game.npcs:
+		if person.phase=="warn":warnings.append("左侧咳咳" if person.pos.x<game.player_x else "右侧咳咳")
+	for vehicle in game.vehicles:
+		if vehicle.cough>0:warnings.append("车辆咳咳")
+		if vehicle.litter_warn>0:warnings.append("垃圾红圈")
+	message.text=(" / ".join(warnings)+"！提前躲开") if not warnings.is_empty() else (game.toast if game.toast_time>0 else "在车身下方道路滑动")
 
 func press(id: int, pos: Vector2) -> bool:
 	if game.state!="play":return false
@@ -210,6 +202,7 @@ func press(id: int, pos: Vector2) -> bool:
 		if steering_id!=-999:return true
 		steering_id=id;steering_origin=pos.x;steering_start=game.player_x;steering_target=game.player_x
 		fingers[id]="road"
+		game.avoid_finger(pos+root.position)
 		return true
 	return false
 
@@ -220,7 +213,7 @@ func drag(id: int, pos: Vector2) -> void:
 func release(id: int) -> void:
 	if not fingers.has(id):return
 	var key: String=fingers[id];fingers.erase(id)
-	if id==steering_id:steering_id=-999;steering_target=game.player_x
+	if id==steering_id:steering_id=-999;steering_target=game.player_x;game.hand_lift_target=0
 	if key in ["sprint","brake"]:game.touch[key]=fingers.values().has(key)
 
 func _input(event: InputEvent) -> void:

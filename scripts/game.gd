@@ -100,6 +100,11 @@ var portrait := false
 var safe_top := 0.0
 var safe_bottom := 0.0
 var mobile_view
+var intro_view
+var crash_view
+var crash_time := 0.0
+var hand_lift := 0.0
+var hand_lift_target := 0.0
 var reward_view
 var garage_view
 var layout_size := Vector2i.ZERO
@@ -130,7 +135,7 @@ func _ready() -> void:
 		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		stream.loop_end = stream.data.size() / 2
 		tracks.append(stream)
-	for name in ["bell", "cough", "spit", "splat", "near", "click", "brake", "win", "lose", "engine", "coin", "shield", "shoot", "return", "trash"]:
+	for name in ["bell", "cough", "spit", "splat", "near", "click", "brake", "win", "lose", "engine", "coin", "shield", "shoot", "return", "trash", "bonk"]:
 		sounds[name] = load("res://assets/" + name + ".wav")
 	for i in 12:
 		var effect := AudioStreamPlayer.new()
@@ -147,6 +152,8 @@ func _ready() -> void:
 	garage_view.setup(self)
 	reward_view=preload("res://scripts/reward_ui.gd").new()
 	add_child(reward_view);reward_view.setup(self)
+	intro_view=preload("res://scripts/intro_ui.gd").new();add_child(intro_view);intro_view.setup(self)
+	crash_view=preload("res://scripts/crash_ui.gd").new();add_child(crash_view);crash_view.setup(self)
 	get_window().size_changed.connect(func(): call_deferred("update_layout"))
 	update_layout()
 	build_ui()
@@ -177,12 +184,25 @@ func update_layout() -> void:
 func mobile_controls_height() -> float:
 	return 106.0
 
+func mobile_rider_y() -> float:
+	var top:=126.0 if portrait else 76.0
+	var bottom: float=get_window().content_scale_size.y-safe_top-safe_bottom-mobile_controls_height()-36
+	return safe_top+top+(bottom-top)*(.60 if portrait else .53)
+
 func position_world() -> void:
-	if portrait:
-		scale=Vector2(.96,.96)
-		position=Vector2(240-480*.96,get_window().content_scale_size.y-safe_bottom-mobile_controls_height()-65-450*.96)
-	else:
-		scale=Vector2.ONE;position=Vector2((get_window().content_scale_size.x-960)/2.0,0) if mobile else Vector2.ZERO
+	if mobile:
+		scale=Vector2(.96,.96) if portrait else Vector2.ONE
+		position=Vector2(get_window().content_scale_size.x*.5-480*scale.x,mobile_rider_y()-hand_lift-450*scale.y)
+	else:scale=Vector2.ONE;position=Vector2.ZERO
+
+func avoid_finger(pos: Vector2) -> void:
+	if not mobile:return
+	var clearance:=92.0*get_window().content_scale_size.x/get_window().size.x
+	var rider_y:=mobile_rider_y()
+	# The road remains draggable everywhere; move the camera, never the collision bodies.
+	if absf(pos.y-rider_y)<clearance:
+		hand_lift_target=clampf(rider_y-pos.y+clearance,0,rider_y-safe_top-(270 if portrait else 170))
+
 
 func load_save() -> void:
 	if FileAccess.file_exists(save_path):
@@ -190,7 +210,7 @@ func load_save() -> void:
 		if f: saved = Rules.clean_save(JSON.parse_string(f.get_as_text()))
 
 func save_game() -> void:
-	saved = {"version":3,"phase":"shop" if state=="shop" else ("run" if state in ["play","pause","route","upgrade"] else "brief"),"run_earned":run_coins,"run_progress":clampi(int(distance/maxf(1,target_distance)*100),0,100),"weeks":weeks,"last_result":last_result.duplicate(),"owned":owned.duplicate(),"equipped":equipped.duplicate(),"day":day,"mode":mode,"coins":coins,"gear":gear,"wins":wins}
+	saved = {"version":3,"phase":"shop" if state in ["shop","crash"] else ("run" if state in ["play","pause","route","upgrade"] else "brief"),"run_earned":run_coins,"run_progress":clampi(int(distance/maxf(1,target_distance)*100),0,100),"weeks":weeks,"last_result":last_result.duplicate(),"owned":owned.duplicate(),"equipped":equipped.duplicate(),"day":day,"mode":mode,"coins":coins,"gear":gear,"wins":wins}
 	var temp_path := save_path + ".tmp"
 	var f := FileAccess.open(temp_path, FileAccess.WRITE)
 	if not f:
@@ -266,15 +286,13 @@ func build_ui() -> void:
 	clear_ui()
 	if garage_view:garage_view.build()
 	if reward_view:reward_view.build()
+	if intro_view:intro_view.build()
+	if crash_view:crash_view.build()
 	if mobile_view:
 		position_world()
 		mobile_view.build()
-		if mobile or state in ["shop","upgrade"]: return
+		if mobile or state in ["shop","upgrade","menu","brief","crash"]: return
 	match state:
-		"menu":
-			button("开始", Rect2(56,328,286,52), request_new_game, true)
-			if not saved.is_empty(): button(("回到改装铺" if saved.get("phase","")=="shop" else "继续 · 第 " + str(int(saved.day)+1) + " 天"), Rect2(56,392,286,46), resume_save)
-			button("玩法 / 声音", Rect2(56,392 if saved.is_empty() else 456,174,38), func(): change_state("help"))
 		"new_confirm":
 			button("保留存档，返回", Rect2(230,350,235,48), func(): change_state("menu"), true)
 			button("保留装备，重新出发", Rect2(495,350,235,48), func(): new_game("week"))
@@ -282,10 +300,6 @@ func build_ui() -> void:
 			button("音效：" + ("关" if muted else "开"), Rect2(260,427,205,45), toggle_sound)
 			button("音乐：" + ("开" if music_on else "关"), Rect2(495,427,205,45), toggle_music)
 			button("返回", Rect2(350,490,260,46), func(): change_state("menu"), true)
-		"brief":
-			button("出门上班   →", Rect2(330,447,300,52), begin_run, true)
-			button("改装铺 / 装备", Rect2(240,510,230,38), func(): open_shop("brief"))
-			button("返回主菜单", Rect2(490,510,230,38), func(): change_state("menu"))
 		"play":
 			button("Ⅱ", Rect2(852,19,42,37), pause_game)
 			button("♫" if not muted else "静", Rect2(903,19,40,37), toggle_sound)
@@ -381,7 +395,8 @@ func start_run() -> void:
 	blocks = 0; returns = 0; attacks = 0
 	distance = 0
 	target_distance = Rules.duration(mode, day) * 90.0
-	time_limit = Rules.duration(mode, day) * 1.38
+	time_limit = Rules.duration(mode, day) * 1.30
+	hand_lift=0;hand_lift_target=0
 	player_x = 480
 	stamina = 100
 	npcs.clear(); spits.clear(); stains.clear(); obstacles.clear(); particles.clear(); vehicles.clear()
@@ -397,7 +412,7 @@ func start_run() -> void:
 	change_state("play")
 	save_game()
 	start_music()
-	notify("捡金币买装备！垃圾碰到就翻车，看红色落点绕行。", 5)
+	notify("在车身下方道路滑动，别挡住自己的英姿！" if mobile else "一趟约90秒，躲开预警，干净打卡！", 4)
 
 func notify(message: String, seconds := 3.0) -> void:
 	toast = message
@@ -497,10 +512,15 @@ func settle_run(reason: String) -> void:
 		if day < 4: day += 1
 		else: weeks += 1
 	stop_audio()
-	sfx("win" if success else ("splat" if reason=="spit" else "lose"))
+	sfx("win" if success else ("splat" if reason=="spit" else "bonk"))
+	if reason=="spit":sfx("bonk")
 	reset_perks()
-	change_state("shop")
+	crash_time=0
+	change_state("crash" if reason in ["spit","trash","late"] else "shop")
 	save_game()
+
+func finish_crash() -> void:
+	if state=="crash":change_state("shop")
 
 func fail_run(reason: String) -> void:
 	settle_run(reason)
@@ -511,6 +531,12 @@ func finish_run() -> void:
 func _process(dt: float) -> void:
 	if mobile_view: mobile_view.update_hud()
 	clock += dt
+	if mobile:
+		hand_lift=move_toward(hand_lift,hand_lift_target,dt*1400)
+		position_world()
+	if state=="crash":
+		crash_time+=minf(dt,.05)
+		if crash_time>=2.0:finish_crash()
 	toast_time = maxf(0, toast_time-dt)
 	if state == "play":
 		update_pickup_fx(dt)
@@ -523,6 +549,7 @@ func _process(dt: float) -> void:
 	queue_redraw()
 
 func update_game(dt: float) -> void:
+	if state!="play":return
 	elapsed += dt
 	warning_gap = maxf(0,warning_gap-dt)
 	music.volume_db = move_toward(music.volume_db,-12,dt*7)
@@ -555,10 +582,10 @@ func update_game(dt: float) -> void:
 	traffic_timer -= dt
 	if traffic_timer <= 0:
 		spawn_vehicle()
-		traffic_timer = rng.randf_range(4.5,6.5) * (1.5 if route=="park" else 1.0)
+		traffic_timer = rng.randf_range(3.0,4.4) * (1.5 if route=="park" else 1.0)
 	if spawn_timer <= 0:
 		spawn_npc()
-		spawn_timer = rng.randf_range(1.25,2.2) * (1.4 if route=="park" else 1.0) * (1.0-day*.065)
+		spawn_timer = rng.randf_range(.9,1.5) * (1.4 if route=="park" else 1.0) * (1.0-day*.065)
 	if obstacle_timer <= 0:
 		obstacles.append({"pos":Vector2(rng.randf_range(320,640),-30),"kind":0 if day<3 else rng.randi_range(0,1)})
 		obstacle_timer = rng.randf_range(7,11)
@@ -570,7 +597,7 @@ func update_game(dt: float) -> void:
 				warning_gap = 0.75
 				p.phase = "warn"
 				p.timer = (1.65 if gear==3 else 1.3)
-				p.target = Vector2(player_x,450)
+				p.target = Vector2(player_x,450)+Rules.RIDER_BODY_OFFSET
 				sfx("cough")
 		if p.phase == "warn":
 			p.timer -= dt
@@ -588,8 +615,8 @@ func update_game(dt: float) -> void:
 		sp.vel.x += wind*dt
 		sp.pos += (sp.vel+Vector2(0,speed))*dt
 		sp.life -= dt
-		var separation := Rules.segment_distance(Vector2.ZERO,old-old_player,sp.pos-Vector2(player_x,450))
-		if separation < 12:
+		var separation := Rules.segment_distance(Vector2.ZERO,old-old_player-Rules.RIDER_BODY_OFFSET,sp.pos-Vector2(player_x,450)-Rules.RIDER_BODY_OFFSET)
+		if Rules.spit_contact(old,sp.pos,old_player,Vector2(player_x,450)):
 			if block_spit():
 				sp.life = 0
 				continue
@@ -604,8 +631,9 @@ func update_game(dt: float) -> void:
 			stains.append({"pos":sp.pos,"life":3.0})
 			dodged += 1
 	for obstacle in obstacles:
+		var old_obstacle: Vector2=obstacle.pos
 		obstacle.pos.y += speed*dt
-		if obstacle.pos.distance_to(Vector2(player_x,460)) < 26 and slow_timer <= 0:
+		if Rules.ground_contact(old_obstacle,obstacle.pos,old_player,Vector2(player_x,450),Vector2(10,8) if obstacle.kind==0 else Vector2(18,7)) and slow_timer <= 0:
 			slow_timer = 1.1
 			stamina = maxf(0,stamina-15)
 			sfx("brake")
@@ -617,7 +645,7 @@ func update_game(dt: float) -> void:
 	spits = spits.filter(func(p): return p.life > 0 and p.pos.y < 650 and p.pos.x > 160 and p.pos.x < 800)
 	obstacles = obstacles.filter(func(p): return p.pos.y < 650)
 	stains = stains.filter(func(p): return p.life > 0 and p.pos.y < 650)
-	if distance/target_distance > (0.28 if route_stage==0 else 0.65) and route_stage < 2:
+	if distance/target_distance > .35 and route_stage < 1:
 		route_stage += 1
 		stop_audio()
 		change_state("route")
@@ -628,7 +656,7 @@ func update_game(dt: float) -> void:
 		notify(["老板：不急，注意安全。还有两分钟。", "导航：道路畅通。建议闭眼？不建议！", "温馨提示：全勤奖不含洗衣补贴。", "文明街道评选中，请大家自由发挥。", "今天的目标：衣服比工资干净。"].pick_random(),4)
 	if elapsed >= time_limit: fail_run("late")
 	elif distance >= target_distance: finish_run()
-	elif perk_stage < 4 and distance/target_distance >= perk_stage*.25: offer_perks()
+	elif perk_stage < Rules.PERK_OFFERS and distance/target_distance >= .5: offer_perks()
 
 func spawn_npc() -> void:
 	var side := rng.randi_range(0,1)
@@ -721,7 +749,7 @@ func update_traffic(dt: float, old_player: Vector2) -> void:
 			if can_warn_spit() and v.pos.distance_to(player) > 110 and rng.randf() < Rules.probability(1+int(v.kind==1),day,route):
 				warning_gap = 0.75
 				v.cough = 1.25 if gear==3 else 0.95
-				v.target = player
+				v.target = player+Rules.RIDER_BODY_OFFSET
 				sfx("cough")
 		if v.hit_cooldown <= 0 and Traffic.contacts_player(v,old_player,player):
 			v.hit_cooldown = 2.0
@@ -811,11 +839,10 @@ func panel(box: Rect2, color := CREAM) -> void:
 	draw_rect(Rect2(box.position+Vector2(4,4),box.size-Vector2(8,8)),Color("a2b1bb") if color==CREAM else color.lightened(.2),false,2)
 
 func _draw() -> void:
-	if not font or state in ["shop","upgrade"]: return
+	if not font or state in ["shop","upgrade","menu","brief"]: return
 	if mobile:
-		if state=="play":draw_world()
+		if state in ["play","crash"]:draw_world()
 		return
-	if state == "menu": draw_menu(); return
 	draw_world()
 	draw_hud()
 	if state == "play":
@@ -831,7 +858,6 @@ func _draw() -> void:
 			centered("重新开始？",219,32)
 			centered("重新从第一天出发，金币和装备永久保留。",272,20)
 			centered("继续原来的游戏，请返回主菜单选「继续」。",310,16,TEAL)
-		"brief": draw_brief()
 		"help": draw_help()
 		"route": draw_route()
 		"pause":
@@ -839,58 +865,16 @@ func _draw() -> void:
 			centered("路边歇一会儿",208,33)
 			centered("时间和危险都暂停了。",252,17)
 
-func draw_menu() -> void:
-	rect(0,0,960,600,INK)
-	# A living pixel city postcard, framed beside the title.
-	draw_city(8.0*sin(clock*.25)+clock*18)
-	rect(0,0,392,600,CREAM)
-	rect(392,0,6,600,YELLOW)
-	rect(56,46,112,26,INK)
-	txt("打工人的掌机冒险",62,65,12,YELLOW)
-	txt("痰 途",49,169,78,INK)
-	txt("全 勤 之 路",57,215,29,INK)
-	rect(57,239,54,5,RED)
-	txt("上个班而已。",56,281,21,INK)
-	txt("怎么还得走位？",56,310,21,INK)
-	txt("局外改装 / 局内奇遇 / 文明反击",56,578,13,TEAL)
-	rect(424,32,199,29,DARK)
-	txt("07:58 AM   ·   宜 干净上班",434,52,13,CREAM)
-	cyclist(Vector2(571,398),2.7,true)
-	person(Vector2(782,264),2,2.0,2)
-	panel(Rect2(705,130,160,44),YELLOW)
-	txt("咳、咳——",719,160,23,INK)
-	var sx := 752-fmod(clock*92,180)
-	rect(sx,320,13,8,GREEN)
-	rect(sx+10,317,5,6,GREEN)
-	rect(428,497,482,66,DARK)
-	txt("「争创文明街道」",448,525,24,YELLOW)
-	txt("奖品已备好：自愿加班体验券一张。",449,548,15,CREAM)
-	for i in 7: rect(925,30+i*82,9,37,YELLOW)
-
-func draw_city(offset: float) -> void:
-	tile_area("grass",Rect2(398,0,562,600),offset)
-	tile_area("road",Rect2(475,0,267,600),offset)
-	tile_area("paving",Rect2(443,0,32,600),offset)
-	tile_area("paving",Rect2(742,0,34,600),offset)
-	for i in range(-1,4):
-		var y := float(i*240)+fmod(offset,240)
-		building(781,y,155,154,i+2)
-		tree(Vector2(419,y+120),1.1)
-		pixel_sprite("flowers",Vector2(875,y+195),3)
-
 func draw_world() -> void:
 	if mobile:tile_area("grass",Rect2(-position/scale,Vector2(get_window().content_scale_size)/scale),road_scroll)
-	if portrait:
-		var top := minf(0,-position.y/scale.y)
-		tile_area("paving",Rect2(196,top,67,-top),road_scroll)
-		tile_area("paving",Rect2(697,top,67,-top),road_scroll)
-		tile_area("road",Rect2(263,top,434,-top),road_scroll)
+	var road_top:=minf(0,-position.y/scale.y) if mobile else 0.0
+	var road_bottom:=maxf(600,(get_window().content_scale_size.y-position.y)/scale.y) if mobile else 600.0
 	if not mobile:tile_area("grass",Rect2(0,0,960,600),road_scroll)
-	tile_area("paving",Rect2(196,0,67,600),road_scroll)
-	tile_area("paving",Rect2(697,0,67,600),road_scroll)
-	tile_area("road",Rect2(263,0,434,600),road_scroll)
-	rect(260,0,6,600,Color("b0a781")); rect(694,0,6,600,Color("b0a781"))
-	rect(266,0,3,600,Color("fff1c8")); rect(691,0,3,600,Color("fff1c8"))
+	tile_area("paving",Rect2(196,road_top,67,road_bottom-road_top),road_scroll)
+	tile_area("paving",Rect2(697,road_top,67,road_bottom-road_top),road_scroll)
+	tile_area("road",Rect2(263,road_top,434,road_bottom-road_top),road_scroll)
+	rect(260,road_top,6,road_bottom-road_top,Color("b0a781"));rect(694,road_top,6,road_bottom-road_top,Color("b0a781"))
+	rect(266,road_top,3,road_bottom-road_top,Color("fff1c8"));rect(691,road_top,3,road_bottom-road_top,Color("fff1c8"))
 	for i in range(-1,10):
 		var y := i*80+fmod(floorf(road_scroll/3)*3,80)
 		rect(404,y,3,21,Color("f8edce")); rect(552,y,3,21,Color("f8edce"))
@@ -957,7 +941,7 @@ func draw_world() -> void:
 		else:
 			draw_line(shot.pos,shot.pos+Vector2(0,22),YELLOW,3)
 			draw_trash(shot.pos)
-	cyclist(Vector2(player_x,450-18*sin(PI*jump_flash/.5)),1.5,state=="play")
+	if state!="crash":cyclist(Vector2(player_x,450-18*sin(PI*jump_flash/.5)),1.5,state=="play")
 	draw_pickup_fx()
 	if equipped.has(4) and shield_cooldown <= 0: draw_arc(Vector2(player_x,435),31,0,TAU,24,Color("9ee9dd"),3)
 	if umbrella_time > 0:
@@ -1047,18 +1031,6 @@ func draw_hud() -> void:
 		var width := font.get_string_size(toast,HORIZONTAL_ALIGNMENT_LEFT,-1,16).x+32
 		rect((960-width)/2,486,width,29,INK)
 		txt(toast,(960-width)/2+16,507,16,YELLOW)
-
-func draw_brief() -> void:
-	panel(Rect2(210,90,540,430))
-	centered("出门前，做个心理建设",132,15,TEAL)
-	centered(Rules.DAYS[day],189,31)
-	centered(["今天的 KPI：衬衫保持出厂设置。", "人多不是问题，问题是他们都想清嗓子。", "风会吹弯弹道。看预警，也看风向。", "路上有坑，老板的饼也不小。", "四天都过来了，别在公司门口破防。 "][day],233,17)
-	centered("← A / D → 转向     W / ↑ 冲刺     S / ↓ 刹车",285,17)
-	centered("空格 响铃    E 撑伞    F 泡泡炮    P 暂停",318,17)
-	centered("局外买装备永久保留，局内三选一临时强化。",354,16)
-	centered("每局结束自动回改装铺，花金币再变强。",381,16)
-	centered("垃圾落地后撞到即失败！机械臂冷却时仍需躲避。",407,15)
-	centered("平安到公司，才是今天的胜利。",436,13,TEAL)
 
 func draw_help() -> void:
 	panel(Rect2(200,59,560,505))
@@ -1198,7 +1170,7 @@ func update_garbage(dt: float, old_player: Vector2) -> void:
 			shots.append({"kind":"return","pos":g.pos,"source":g.source,"life":4.0})
 			sfx("return")
 			notify("机械臂：谁扔的？请签收原件！",2)
-		elif not was_airborne and Rules.segment_distance(Vector2.ZERO,old-old_player,g.pos-player) < 27:
+		elif not was_airborne and Rules.ground_contact(old,g.pos,old_player,player):
 			if jump_charges > 0:
 				jump_charges -= 1
 				g.caught = true
@@ -1260,7 +1232,7 @@ func reset_perks() -> void:
 	perk_stage=0;spare_guards=0;jump_charges=0;jump_flash=0
 
 func offer_perks() -> void:
-	if state != "play" or perk_stage >= 4: return
+	if state != "play" or perk_stage >= Rules.PERK_OFFERS: return
 	var pool: Array[int] = []
 	for i in Perks.ITEMS.size():
 		if perk_level(i) >= Perks.ITEMS[i].max: continue
@@ -1306,7 +1278,7 @@ func draw_pickup_fx() -> void:
 func draw_perk_hud() -> void:
 	if buffs.is_empty(): return
 	panel(Rect2(16,243,166,225),INK)
-	txt("本局强化  %d/4"%perk_stage,29,269,14,YELLOW)
+	txt("本局强化  %d/%d"%[perk_stage,Rules.PERK_OFFERS],29,269,14,YELLOW)
 	var row := 0
 	for id in buffs:
 		var name: String = Perks.ITEMS[id].name

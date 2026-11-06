@@ -3,22 +3,37 @@ extends RefCounted
 
 const Equipment = preload("res://scripts/equipment.gd")
 
+const PERK_OFFERS = 2
+const RIDER_BODY_OFFSET = Vector2(0,-18)
+const RIDER_BODY_HALF = Vector2(10,18)
+const RIDER_WHEELS_OFFSET = Vector2(0,6)
+const RIDER_WHEELS_HALF = Vector2(9,16)
+
 const DAYS = ["周一 · 先活着到公司", "周二 · 人间早高峰", "周三 · 风有自己的想法", "周四 · 前方施工", "周五 · 全勤保卫战"]
 const ZONES = ["早餐一条街", "幸福公交站", "文明施工路", "摸鱼公园", "公司最后一公里"]
 
 static func probability(kind: int, day: int, route: String) -> float:
-	var p: float = [0.12, 0.28, 0.46][clampi(kind, 0, 2)] + day * 0.025
+	var p: float = [0.18, 0.34, 0.50][clampi(kind, 0, 2)] + day * 0.035
 	if route == "shortcut": p += 0.14
 	if route == "park": p -= 0.09
 	return clampf(p, 0.05, 0.8)
 
 static func duration(mode: String, day: int) -> float:
-	return (75.0 + day * 10.0) if mode == "quick" else (390.0 + day * 15.0)
+	return 85.0 + day * 5.0 # The legacy mode field is retained for existing saves.
 
 static func segment_distance(point: Vector2, a: Vector2, b: Vector2) -> float:
 	var delta := b - a
 	if delta.length_squared() < 0.001: return point.distance_to(a)
 	return point.distance_to(a + delta * clampf((point - a).dot(delta) / delta.length_squared(), 0.0, 1.0))
+
+static func ellipse_sweep(a: Vector2,b: Vector2,half: Vector2) -> bool:
+	return segment_distance(Vector2.ZERO,a/half,b/half)<1.0
+
+static func spit_contact(old: Vector2,current: Vector2,old_rider: Vector2,rider: Vector2) -> bool:
+	return ellipse_sweep(old-old_rider-RIDER_BODY_OFFSET,current-rider-RIDER_BODY_OFFSET,RIDER_BODY_HALF+Vector2(4,4))
+
+static func ground_contact(old: Vector2,current: Vector2,old_rider: Vector2,rider: Vector2,half := Vector2(10,10)) -> bool:
+	return ellipse_sweep(old-old_rider-RIDER_WHEELS_OFFSET,current-rider-RIDER_WHEELS_OFFSET,RIDER_WHEELS_HALF+half)
 
 static func clean_save(data: Variant) -> Dictionary:
 	if not data is Dictionary or (data.get("version") != 1 and data.get("version") != 2 and data.get("version") != 3): return {}

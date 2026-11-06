@@ -84,7 +84,7 @@ func run() -> void:
 	# A representative traffic-emitted projectile must obey the same one-hit rule.
 	game.spits.append({"pos":Vector2(450,450),"vel":Vector2(1000,-game.speed),"life":1.0,"near":false})
 	game.update_game(.06)
-	check(game.state=="shop","vehicle projectile path still ends run on a hit")
+	check(game.state=="crash","vehicle projectile path still ends run on a hit")
 	# Follow-distance resolution keeps an entering follower behind its leader.
 	game.start_run();game.player_x=625
 	var leader := Traffic.create(2,0,false,rng)

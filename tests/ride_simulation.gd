@@ -31,6 +31,7 @@ func run() -> void:
 	game.begin_run()
 	attempts=1
 	for frame in 360000:
+		if game.state=="crash":game.finish_crash()
 		if game.state=="route": game.choose_route("park")
 		elif game.state=="upgrade":
 			var picked := 0

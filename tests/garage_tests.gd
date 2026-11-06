@@ -59,7 +59,7 @@ func run() -> void:
 	garage.select_item(8);game.depart_shop()
 	check(not game.equipped.has(8) and not game.owned.has(8),"leaving a preview never grants unpurchased equipment")
 	check(not garage.root.visible,"garage closes when departing")
-	game.choose_perk(0);game.fail_run("spit")
+	game.choose_perk(0);game.fail_run("spit");game.finish_crash()
 	check(garage.root.visible and garage.art.gear==game.equipped,"settlement returns to actual owned bicycle instead of stale preview")
 	for viewport in [Vector2i(320,480),Vector2i(359,610),Vector2i(390,740),Vector2i(430,932),Vector2i(844,390),Vector2i(667,320)]:
 		root.size=viewport;game.update_layout();await process_frame

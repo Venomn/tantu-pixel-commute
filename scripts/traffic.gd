@@ -4,6 +4,8 @@ extends RefCounted
 const LANES = [335.0, 480.0, 625.0]
 const NAMES = ["自行车", "摩托车", "小汽车"]
 const HALF_SIZE = [Vector2(20, 38), Vector2(25, 42), Vector2(38, 58)]
+const CONTACT_HALF = [Vector2(12,26),Vector2(17,29),Vector2(32,57)]
+const CONTACT_OFFSET = [Vector2(0,-10),Vector2(0,-8),Vector2.ZERO]
 
 static func create(kind: int, lane: int, from_behind: bool, rng: RandomNumberGenerator) -> Dictionary:
 	var cruise: float = [57.0, 70.0, 62.0][kind] if not from_behind else [124.0, 153.0, 138.0][kind]
@@ -68,7 +70,7 @@ static func step(v: Dictionary, dt: float, player_speed: float, rng: RandomNumbe
 
 static func contacts_player(v: Dictionary, old_player: Vector2, player: Vector2) -> bool:
 	# Swept collision in relative coordinates catches high-speed passing in either direction.
-	var half: Vector2 = HALF_SIZE[v.kind] + Vector2(10,14)
-	var a: Vector2 = (v.old_pos-old_player)/half
-	var b: Vector2 = (v.pos-player)/half
-	return CommuteRules.segment_distance(Vector2.ZERO,a,b) <= 1.0
+	var half: Vector2=CONTACT_HALF[v.kind]+CommuteRules.RIDER_WHEELS_HALF
+	var a: Vector2=v.old_pos+CONTACT_OFFSET[v.kind]-old_player-CommuteRules.RIDER_WHEELS_OFFSET
+	var b: Vector2=v.pos+CONTACT_OFFSET[v.kind]-player-CommuteRules.RIDER_WHEELS_OFFSET
+	return CommuteRules.ellipse_sweep(a,b,half)

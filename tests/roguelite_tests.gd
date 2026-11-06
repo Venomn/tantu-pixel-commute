@@ -37,8 +37,8 @@ func run() -> void:
 	game.choose_perk(0)
 	check(game.perk_level(id)==1,"duplicate selection cannot grant another upgrade")
 	fresh();game.route_stage=2
-	for stage in [1,2,3]:
-		game.distance=game.target_distance*(stage*.25+.001)
+	for stage in [1]:
+		game.distance=game.target_distance*(.5+.001)
 		game.update_game(.001)
 		check(game.state=="upgrade" and game.perk_stage==stage+1,"distance checkpoint %d offers an upgrade"%stage)
 		game.choose_perk(0)
@@ -78,9 +78,9 @@ func run() -> void:
 	game.garbage.append(trash);game.update_garbage(.01,Vector2(480,450))
 	check(game.state=="play" and game.jump_charges==0 and game.garbage.is_empty(),"rabbit jump consumes a charge to avoid a real trash collision")
 	game.garbage.append(trash.duplicate());game.garbage[0].caught=false;game.update_garbage(.01,Vector2(480,450))
-	check(game.state=="shop" and game.last_result.reason=="trash","second trash remains lethal and goes straight to shop")
+	check(game.state=="crash" and game.last_result.reason=="trash","second trash remains lethal and starts failure animation")
 	fresh();game.equipped=[6];give(6);game.earn_coins(17);game.fail_run("spit")
-	check(game.state=="shop" and game.coins==97 and game.buffs.is_empty() and not game.last_result.is_empty(),"failure settles into shop, retains earnings and clears temporary powers")
+	check(game.state=="crash" and game.coins==97 and game.buffs.is_empty() and not game.last_result.is_empty(),"failure starts animation, retains earnings and clears temporary powers")
 	game.load_save();game.resume_save()
 	check(game.state=="shop" and game.coins==97 and game.last_result.reason=="spit","failure shop and settlement survive reload")
 	game.start_run()
