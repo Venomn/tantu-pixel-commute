@@ -30,7 +30,11 @@ func run() -> void:
 	game.save_path="user://qa_run_tests.json";root.add_child(game)
 	game.set_process(false)
 	game.muted = true
-	game.new_game("quick")
+	game.saved = {}
+	game.change_state("menu")
+	for control in game.ui.get_children():
+		if control is Button and control.text == "开始": control.pressed.emit(); break
+	check(game.state=="brief" and game.mode=="week","single Start entry selects full campaign")
 	game.start_run()
 	check(game.state=="play" and game.day==0,"start is playable")
 	game.touch.right = true

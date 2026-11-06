@@ -37,7 +37,7 @@ func run() -> void:
 	for bad in [[0],[9],[1.5],["1"],[INF]]:
 		duplicate.owned=bad
 		check(Rules.clean_save(duplicate).is_empty(),"reject invalid inventory "+str(bad))
-	game.request_new_game("quick")
+	game.request_new_game()
 	check(game.state=="new_confirm" and game.coins==245 and game.day==3,"new campaign UI protects existing wallet and inventory until confirmed")
 	reset()
 	check(game.coins==80 and game.owned.is_empty(),"new campaign gives starter budget and clean inventory")

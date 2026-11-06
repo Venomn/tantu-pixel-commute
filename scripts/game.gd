@@ -16,14 +16,13 @@ var font: Font
 var pixels := {}
 var state := "menu"
 var previous_state := "play"
-var mode := "quick"
+var mode := "week"
 var day := 0
 var coins := 0
 var gear := 0
 var wins := 0
 var owned: Array = []
 var equipped: Array = []
-var pending_mode := "quick"
 var pickups: Array[Dictionary] = []
 var garbage: Array[Dictionary] = []
 var shots: Array[Dictionary] = []
@@ -207,13 +206,12 @@ func build_ui() -> void:
 	clear_ui()
 	match state:
 		"menu":
-			button("开始试玩 · 8–15 分钟", Rect2(56,328,286,52), func(): request_new_game("quick"), true)
-			button("完整一周 · 约 1 小时", Rect2(56,392,286,46), func(): request_new_game("week"))
-			if not saved.is_empty(): button(("重看全勤结局" if saved.wins == 5 else "继续上次 · " + ("试玩" if saved.mode == "quick" else "一周") + " / 周" + str(int(saved.day)+1)), Rect2(56,450,286,42), resume_save)
-			button("玩法 / 声音", Rect2(56,510,174,38), func(): change_state("help"))
+			button("开始", Rect2(56,328,286,52), request_new_game, true)
+			if not saved.is_empty(): button(("重看全勤结局" if saved.wins == 5 else "继续 · 第 " + str(int(saved.day)+1) + " 天"), Rect2(56,392,286,46), resume_save)
+			button("玩法 / 声音", Rect2(56,392 if saved.is_empty() else 456,174,38), func(): change_state("help"))
 		"new_confirm":
 			button("保留存档，返回", Rect2(230,350,235,48), func(): change_state("menu"), true)
-			button("清空并重新开始", Rect2(495,350,235,48), func(): new_game(pending_mode))
+			button("清空并重新开始", Rect2(495,350,235,48), func(): new_game("week"))
 		"help":
 			button("音效：" + ("关" if muted else "开"), Rect2(260,427,205,45), toggle_sound)
 			button("音乐：" + ("开" if music_on else "关"), Rect2(495,427,205,45), toggle_music)
@@ -268,9 +266,8 @@ func toggle_music() -> void:
 	elif state == "play": start_music()
 	build_ui()
 
-func request_new_game(selected: String) -> void:
-	pending_mode = selected
-	if saved.is_empty(): new_game(selected)
+func request_new_game() -> void:
+	if saved.is_empty(): new_game("week")
 	else: change_state("new_confirm")
 
 func new_game(selected: String) -> void:
@@ -740,9 +737,9 @@ func _draw() -> void:
 	match state:
 		"new_confirm":
 			panel(Rect2(180,160,600,280))
-			centered("重新开始一周？",219,32)
+			centered("重新开始？",219,32)
 			centered("当前日期、金币和已买装备都会清空。",272,20)
-			centered("继续原来的游戏，请返回主菜单选「继续上次」。",310,16,TEAL)
+			centered("继续原来的游戏，请返回主菜单选「继续」。",310,16,TEAL)
 		"brief": draw_brief()
 		"help": draw_help()
 		"route": draw_route()
@@ -939,7 +936,7 @@ func draw_hud() -> void:
 	txt("惊险闪避  %02d" % near_misses,793,148,16)
 	txt("金币   %d" % coins,793,176,16)
 	txt("第 %d 次出门" % attempts,793,205,13,GREEN)
-	txt("试玩" if mode=="quick" else "完整一周",793,228,12,CREAM)
+	txt("通勤第 %d 天" % (day+1),793,228,12,CREAM)
 	panel(Rect2(778,257,165,112),INK)
 	txt("装备就绪",793,281,14,YELLOW)
 	var defense := "未装备防御"
@@ -969,7 +966,7 @@ func draw_brief() -> void:
 	centered("捡金币买装备！失败保留金币，本周买断拥有。",354,16)
 	centered("护盾 / 雨伞挡痰，泡泡炮停嘴，机械臂自动回投。",381,16)
 	centered("垃圾落地后撞到即失败！机械臂冷却时仍需躲避。",407,15)
-	centered("五天速通 · 约 8–15 分钟" if mode=="quick" else "完整五天 · 含重试目标约 45–65 分钟",436,13,TEAL)
+	centered("平安到公司，才是今天的胜利。",436,13,TEAL)
 
 func draw_help() -> void:
 	panel(Rect2(200,59,560,505))
@@ -1033,7 +1030,7 @@ func draw_final() -> void:
 	centered("自愿加班体验券",307,30)
 	centered("有效期：永久   /   不可转让   /   谢谢配合",348,14)
 	centered("主角：……我明天坐公交。",405,18)
-	centered("DEMO 完 · 谢谢你认真上这个离谱的班",512,15)
+	centered("全勤达成 · 谢谢你认真上这个离谱的班",512,15)
 
 func earn_coins(amount: int) -> void:
 	coins = mini(9999,coins+amount)
