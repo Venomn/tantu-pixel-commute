@@ -6,11 +6,12 @@ const GOLD=Color("f2d27d")
 const TEAL=Color("69b8a8")
 const RED=Color("df8177")
 var gear: Array=[]
+var keep_aspect := false
 var icon_id := 0
 var time := 0.0
 var flash := 0.0
 func _ready() -> void:
-	mouse_filter=Control.MOUSE_FILTER_IGNORE;set_process(icon_id==0)
+	mouse_filter=Control.MOUSE_FILTER_IGNORE;clip_contents=true;set_process(icon_id==0)
 func _process(dt: float) -> void:
 	time+=dt;flash=maxf(0,flash-dt);queue_redraw()
 func r(x: float,y: float,w: float,h: float,c: Color) -> void:draw_rect(Rect2(x,y,w,h),c)
@@ -27,14 +28,22 @@ func _draw() -> void:
 		draw_set_transform(size/2,0,Vector2.ONE*minf(size.x,size.y)/46)
 		draw_icon(icon_id)
 		return
-	draw_set_transform(Vector2.ZERO,0,size/Vector2(440,240))
+	var art_scale:=size/Vector2(440,240)
+	var art_offset:=Vector2.ZERO
+	if keep_aspect:
+		art_scale=Vector2.ONE*minf(art_scale.x,art_scale.y)
+		art_offset=(size-Vector2(440,240)*art_scale)/2
+	draw_set_transform(art_offset,0,art_scale)
 	# Pegboard, warm lamp, tool cabinet, floor tiles and repair stand.
-	r(0,0,440,240,Color("b6c9b5"));r(0,0,440,12,INK)
-	for x in range(14,440,20):
-		for y in range(22,130,20):r(x,y,3,3,Color("849b8e"))
-	r(0,148,440,92,Color("758d8c"))
-	for x in range(0,440,44):line(Vector2(x,148),Vector2(x-50,240),Color("94aaa0"),2)
-	for y in [164,188,216]:r(0,y,440,2,Color("94aaa0"))
+	var padding:=art_offset/art_scale
+	r(-padding.x,-padding.y,440+2*padding.x,148+padding.y,Color("b6c9b5"))
+	r(-padding.x,-padding.y,440+2*padding.x,12,INK)
+	for x in range(int(-padding.x)+14,int(440+padding.x),20):
+		for y in range(int(-padding.y)+22,130,20):r(x,y,3,3,Color("849b8e"))
+	r(-padding.x,148,440+2*padding.x,92+padding.y,Color("758d8c"))
+	for x in range(int(-padding.x),int(484+padding.x),44):line(Vector2(x,148),Vector2(x-50,240+padding.y),Color("94aaa0"),2)
+	for y in range(164,int(240+padding.y),26):r(-padding.x,y,440+2*padding.x,2,Color("94aaa0"))
+	if padding.y>0:line(Vector2(220,-padding.y),Vector2(220,8),INK,3)
 	r(162,8,116,7,INK);r(184,15,72,6,GOLD)
 	draw_colored_polygon(PackedVector2Array([Vector2(184,21),Vector2(256,21),Vector2(346,172),Vector2(94,172)]),Color(1,.94,.64,.16))
 	r(12,90,61,101,INK);r(17,96,51,88,Color("b37e65"))
@@ -66,7 +75,7 @@ func _draw() -> void:
 		line(Vector2(281,81),Vector2(292,50),INK,4);r(286,37,27,18,INK);r(290,40,19,11,Color("a5dce5"));r(292,42,8,3,CREAM)
 	if gear.has(4):
 		draw_arc(Vector2(218,141),106,PI,TAU,24,Color("83d3eb"),4)
-		draw_set_transform(Vector2(210,113)*size/Vector2(440,240),0,size/Vector2(440,240)*.7);draw_icon(4);draw_set_transform(Vector2.ZERO,0,size/Vector2(440,240))
+		draw_set_transform(art_offset+Vector2(210,113)*art_scale,0,art_scale*.7);draw_icon(4);draw_set_transform(art_offset,0,art_scale)
 	if gear.has(5):
 		line(Vector2(240,113),Vector2(240,52),INK,5)
 		draw_colored_polygon(PackedVector2Array([Vector2(186,58),Vector2(201,32),Vector2(239,18),Vector2(277,32),Vector2(294,58)]),RED)

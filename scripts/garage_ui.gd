@@ -12,6 +12,9 @@ var purchase: Button
 var item_buttons: Array[Button]=[]
 var scroll: ScrollContainer
 var built := false
+var preview_label: Label
+var detail: Label
+var navigation: Array[Button]=[]
 func setup(owner_game) -> void:
 	game=owner_game;layer=11;root=Control.new();root.mouse_filter=Control.MOUSE_FILTER_IGNORE;add_child(root)
 func style(color: Color,border := Color("536d78")) -> StyleBoxFlat:
@@ -40,12 +43,15 @@ func build() -> void:
 	if not root:return
 	var old_scroll := scroll.scroll_vertical if is_instance_valid(scroll) and built else 0
 	for c in root.get_children():root.remove_child(c);c.queue_free()
-	root.visible=game.state=="shop";item_buttons.clear();scroll=null
+	root.visible=game.state=="shop";item_buttons.clear();navigation.clear();scroll=null
 	if not root.visible:built=false;preview_enabled=false;return
 	built=true
 	var size: Vector2=Vector2(game.get_window().content_scale_size)-Vector2(0,game.safe_top+game.safe_bottom)
 	root.position=Vector2(0,game.safe_top);root.size=size
 	var bg:=ColorRect.new();bg.color=Color("263b4c");bg.size=size;bg.mouse_filter=Control.MOUSE_FILTER_IGNORE;root.add_child(bg)
+	if game.mobile:
+		build_mobile(size)
+		return
 	var title:=text("下班改装铺",root,30,Color("f2d27d"));title.position=Vector2(18,12);title.size=Vector2(270,40)
 	var wallet:=text("钱包  %d 金"%game.coins,root,22);wallet.position=Vector2(20,56);wallet.size=Vector2(size.x-40,32)
 	scroll=ScrollContainer.new();scroll.position=Vector2(16,92);scroll.size=size-Vector2(32,174);scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED;root.add_child(scroll)
@@ -78,7 +84,7 @@ func build() -> void:
 		b.add_theme_stylebox_override("normal",style(Color("dfe6ce") if id==selected else Color("3a5065"),Color("f2d27d") if id==selected else Color("536d78")))
 		var icon:=Art.new();icon.icon_id=id;icon.position=Vector2(23,5);icon.size=Vector2(48,48);b.add_child(icon)
 		var name:=text(SHORT[i]+(" ✓" if game.equipped.has(id) else ""),b,17,Color("293b57") if id==selected else Color("fff3d1"));name.position=Vector2(2,55);name.size=Vector2(94,24);name.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;name.mouse_filter=Control.MOUSE_FILTER_IGNORE
-		var price:=text("已拥有" if game.owned.has(id) else "%d 金"%Equipment.ITEMS[i].price,b,16,Color("528d84") if id==selected else Color("f2d27d"));price.position=Vector2(2,81);price.size=Vector2(94,23);price.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;price.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		var price:=fixed_text("已拥有" if game.owned.has(id) else "%d 金"%Equipment.ITEMS[i].price,b,16,Color("528d84") if id==selected else Color("f2d27d"));price.position=Vector2(2,81);price.size=Vector2(94,23);price.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;price.mouse_filter=Control.MOUSE_FILTER_IGNORE
 		b.resized.connect(func():icon.position.x=(b.size.x-48)/2;name.size.x=b.size.x-4;price.size.x=b.size.x-4)
 		item_buttons.append(b)
 	var item: Dictionary=Equipment.ITEMS[selected-1]
@@ -90,3 +96,57 @@ func build() -> void:
 	var back:=button("主菜单",root,func():game.change_state("menu"));back.position=Vector2(16,size.y-72);back.size=Vector2(108,60)
 	var go:=button("新一周，出发！" if game.wins==5 else "装好了，出发 →",root,game.depart_shop,true);go.position=Vector2(136,size.y-72);go.size=Vector2(size.x-152,60)
 	scroll.set_deferred("scroll_vertical",old_scroll)
+
+# Fixed mobile regions are budgeted from the usable viewport, including safe areas.
+# Only the preview absorbs extra height; cards, effects and actions stay visible.
+func place(node: Control, box: Rect2) -> void:
+	node.position=box.position;node.size=box.size
+func fixed_text(value: String, parent: Node, font_size: int, color: Color) -> Label:
+	var node:=Label.new();node.text=value;node.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	node.add_theme_font_override("font",game.font);node.add_theme_font_size_override("font_size",font_size);node.add_theme_color_override("font_color",color)
+	parent.add_child(node);return node
+func compact_text(value: String, box: Rect2, font_size := 20, color := Color("fff3d1")) -> Label:
+	var node:=fixed_text(value,root,font_size,color);place(node,box);return node
+func build_mobile(size: Vector2) -> void:
+	var margin:=14.0
+	var gap:=8.0
+	var touch:=maxf(60.0,44.0*game.get_window().content_scale_size.x/game.get_window().size.x)
+	var nav_y:=size.y-margin-touch
+	var tall:=size.x<700
+	var buy_y:=nav_y-gap-touch if tall else nav_y
+	var header:=maxf(78.0,56.0*game.get_window().content_scale_size.x/game.get_window().size.x)
+	var right_x:=margin if tall else size.x*.5+gap
+	var right_w:=size.x-right_x-margin
+	var grid_y:=buy_y-gap-94-gap-192 if tall else header
+	var detail_y:=grid_y+192+gap
+	var preview_y:=grid_y-gap-24 if tall else nav_y-gap-24
+	var art_box:=Rect2(margin,header,(size.x-2*margin) if tall else right_x-margin-gap,preview_y-gap-header)
+	compact_text("下班改装铺",Rect2(margin,8,size.x-140,36),28,Color("f2d27d"))
+	var income: String=" · 本局 +%d 金"%(game.last_result.earned+game.last_result.bonus) if not game.last_result.is_empty() else ""
+	compact_text("钱包 %d 金"%game.coins+income,Rect2(margin,46,size.x-2*margin,28),21)
+	preview=game.equipped.duplicate() if not preview_enabled or game.equipped.has(selected) else Equipment.select(game.equipped,selected)
+	art=Art.new();art.gear=preview.duplicate();art.keep_aspect=true;root.add_child(art);place(art,art_box)
+	var actual: bool=not preview_enabled or game.equipped.has(selected)
+	preview_label=compact_text("当前装配 · 点配件试装" if actual else "试装预览 · "+("已拥有" if game.owned.has(selected) else "尚未购买"),Rect2(margin,preview_y,art_box.size.x,24),18,Color("a4d577") if actual else Color("f2d27d"))
+	var card_w: float=(right_w-3*gap)/4
+	for i in Equipment.ITEMS.size():
+		var id:=i+1
+		var b:=button("",root,func():select_item(id));b.custom_minimum_size=Vector2.ZERO
+		place(b,Rect2(right_x+(i%4)*(card_w+gap),grid_y+(i/4)*100,card_w,92))
+		b.add_theme_stylebox_override("normal",style(Color("dfe6ce") if id==selected else Color("3a5065"),Color("f2d27d") if id==selected else Color("536d78")))
+		var icon:=Art.new();icon.icon_id=id;b.add_child(icon);place(icon,Rect2((card_w-32)/2,3,32,32))
+		var name:=fixed_text(SHORT[i]+(" ✓" if game.equipped.has(id) else ""),b,18,Color("293b57") if id==selected else Color("fff3d1"))
+		place(name,Rect2(2,36,card_w-4,28));name.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;name.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		var price:=fixed_text("已拥有" if game.owned.has(id) else "%d 金"%Equipment.ITEMS[i].price,b,16,Color("528d84") if id==selected else Color("f2d27d"))
+		place(price,Rect2(2,64,card_w-4,26));price.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;price.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		item_buttons.append(b)
+	var item: Dictionary=Equipment.ITEMS[selected-1]
+	compact_text(item.name+" · "+item.slot,Rect2(right_x,detail_y,right_w,28),23,Color("f2d27d"))
+	detail=compact_text("\n".join(item.lines).replace("按 E","点撑伞").replace("按 F","点泡泡炮"),Rect2(right_x,detail_y+29,right_w,65),19)
+	var buy_label: String="卸下装备" if game.equipped.has(selected) else ("免费装配" if game.owned.has(selected) else "购买并装配 · %d 金"%item.price)
+	if not game.owned.has(selected) and game.coins<item.price:buy_label="还差 %d 金"%(item.price-game.coins)
+	purchase=button(buy_label,root,buy_selected,true);purchase.custom_minimum_size.y=touch;place(purchase,Rect2(right_x,buy_y,right_w,touch))
+	purchase.disabled=not game.owned.has(selected) and game.coins<item.price
+	var back:=button("主菜单",root,func():game.change_state("menu"));back.custom_minimum_size.y=touch;place(back,Rect2(margin,nav_y,108,touch))
+	var go:=button("新一周，出发！" if game.wins==5 else "装好了，出发 →",root,game.depart_shop,true);go.custom_minimum_size.y=touch;place(go,Rect2(130,nav_y,(size.x-130-margin) if tall else right_x-gap-130,touch))
+	navigation.assign([back,go])
