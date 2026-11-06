@@ -103,38 +103,152 @@ body {
 
 		<div id="status">
 			<img id="status-splash" class="show-image--true fullsize--true use-filter--true" src="index.png" alt="">
-			<progress id="status-progress"></progress>
+			<!-- tantu-status -->
+<h1>痰途 · 全勤之路</h1>
+<p id="load-detail" role="status">正在连接游戏资源</p>
+<p id="load-meter">0%</p>
+<p id="load-hint">正在测量下载速度…</p>
+<p id="load-cache">首次加载后会缓存引擎</p>
+<button id="load-retry" hidden>重新加载</button>
+<!-- /tantu-status --><progress id="status-progress"></progress>
 			<div id="status-notice"></div>
 		</div>
 
 		<script id="tantu-compressed-loader">
-// Intercept only the exported engine binary; every other request is unchanged.
-const originalFetch = window.fetch.bind(window);
-window.fetch = async function(input, init) {
-  const url = new URL(typeof input === 'string' ? input : input.url, location.href);
-  if (url.origin === location.origin && url.pathname.endsWith('/index.wasm')) {
-    if (!('DecompressionStream' in window)) throw new Error('请使用较新版本的 Chrome、Edge、Safari 或 Firefox。');
-    url.pathname += '.gz';
-    const response = await originalFetch(url.href, init);
-    if (!response.ok) throw new Error('游戏引擎下载失败，请刷新重试 (' + response.status + ')');
-    return new Response(response.body.pipeThrough(new DecompressionStream('gzip')), {
-      status: 200, headers: {'Content-Type': 'application/wasm'}
-    });
+window.TANTU_ASSETS={"index.wasm": {"file": "index.wasm.gz", "size": 9387768, "hash": "e06c0d789ec74af82a668c7c3e5697d06ff782a9ea8cfe35b2e482393bdb2872"}, "index.pck": {"file": "index.pck.gz", "size": 1482235, "hash": "401b3ebadb925ab14c115721b6721df0951aee1da1cf4860d8cfc67c8c90366d"}};
+/* Compressed, content-addressed game assets. No save data is stored here. */
+(() => {
+  const assets = window.TANTU_ASSETS;
+  const nativeFetch = window.fetch.bind(window);
+  const started = performance.now();
+  const records = Object.fromEntries(Object.keys(assets).map(name => [name, {bytes: 0, done: false, cached: false}]));
+  const total = Object.values(assets).reduce((sum, asset) => sum + asset.size, 0);
+  const samples = [[started, 0]];
+  let networkBytes = 0;
+  let lastByteAt = started;
+  let failed = false;
+  const label = document.getElementById('load-detail');
+  const progress = document.getElementById('status-progress');
+  const meter = document.getElementById('load-meter');
+  const hint = document.getElementById('load-hint');
+  const mb = bytes => (bytes / 1048576).toFixed(1) + ' MB';
+  function render() {
+    const now = performance.now();
+    if (failed || !label.isConnected) return;
+    const values = Object.values(records);
+    const bytes = values.reduce((sum, record) => sum + record.bytes, 0);
+    const complete = values.every(record => record.done);
+    samples.push([now, networkBytes]);
+    while (samples.length > 2 && samples[1][0] < now - 4000) samples.shift();
+    const rate = (networkBytes - samples[0][1]) / Math.max(.25, (now - samples[0][0]) / 1000);
+    const percent = complete ? 100 : Math.min(99, Math.floor(bytes / total * 100));
+    progress.max = total; progress.value = bytes;
+    meter.textContent = `${percent}% · ${mb(bytes)} / ${mb(total)}`;
+    if (complete) {
+      label.textContent = '资源已就绪 · 正在启动游戏';
+      hint.textContent = `已等待 ${Math.floor((now - started) / 1000)} 秒 · 正在编译引擎和准备画面，速度取决于设备`;
+    } else {
+      label.textContent = values.some(record => record.cached) ? '正在读取缓存 / 下载更新' : '正在下载游戏资源';
+      const speed = rate >= 1048576 ? mb(rate) + '/s' : Math.round(rate / 1024) + ' KB/s';
+      const remaining = rate > 1024 ? `预计还需约 ${Math.max(1, Math.ceil((total - bytes) / rate))} 秒下载` : '正在估算剩余时间';
+      hint.textContent = now - lastByteAt > 5000 ? `网络暂时没有新数据 · 已等待 ${Math.floor((now - lastByteAt) / 1000)} 秒` : `${speed} · ${remaining}`;
+    }
+    document.getElementById('load-cache').textContent = values.filter(record => record.cached).length ? '已使用本地缓存，缓存部分无需重复下载' : '首次需要下载引擎；之后会缓存，更新只下载变化的资源';
   }
-  return originalFetch(input, init);
-};
+  const timer = setInterval(() => {
+    if (!label.isConnected || failed) clearInterval(timer);
+    else render();
+  }, 250);
+  const valid = async (bytes, asset) => {
+    if (bytes.byteLength !== asset.size) return false;
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+    return hash === asset.hash;
+  };
+  async function load(name, init) {
+    const asset = assets[name];
+    const record = records[name];
+    const url = new URL(asset.file, location.href);
+    url.searchParams.set('v', asset.hash.slice(0, 16));
+    let cache;
+    try { cache = await caches.open('tantu-compressed-assets-v1'); } catch (_) { /* Storage is optional. */ }
+    if (cache) {
+      try {
+        const hit = await cache.match(url.href);
+        if (hit) {
+          const bytes = await hit.arrayBuffer();
+          if (await valid(bytes, asset)) {
+            record.bytes = bytes.byteLength; record.cached = true; record.done = true; render();
+            return bytes;
+          }
+        }
+      } catch (_) { /* Bad/unavailable cache must fall back to network. */ }
+    }
+    const controller = new AbortController();
+    let timeout;
+    const armTimeout = () => { clearTimeout(timeout); timeout = setTimeout(() => controller.abort(), 25000); };
+    armTimeout();
+    try {
+      const response = await nativeFetch(url.href, {...init, signal: controller.signal});
+      if (!response.ok) throw new Error(`下载失败（HTTP ${response.status}）`);
+      const reader = response.body.getReader();
+      const chunks = [];
+      let size = 0;
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        chunks.push(value); size += value.byteLength; networkBytes += value.byteLength;
+        record.bytes = size; lastByteAt = performance.now(); armTimeout(); render();
+      }
+      clearTimeout(timeout);
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      if (!await valid(bytes, asset)) throw new Error('下载不完整，请重试');
+      record.done = true; render();
+      if (cache) { try { await cache.put(url.href, new Response(bytes)); } catch (_) { /* Quota/private mode must not block play. */ } }
+      return bytes;
+    } finally { clearTimeout(timeout); }
+  }
+  window.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+    const name = url.pathname.split('/').pop();
+    const base = new URL('.', location.href);
+    if (url.origin !== base.origin || url.pathname !== base.pathname + name || !assets[name]) return nativeFetch(input, init);
+    try {
+      if (!('DecompressionStream' in window)) throw new Error('浏览器版本较旧，请更新浏览器后再试');
+      const bytes = await load(name, init);
+      return new Response(new Response(bytes).body.pipeThrough(new DecompressionStream('gzip')), {headers: {'Content-Type': name.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream'}});
+    } catch (error) {
+      failed = true;
+      label.textContent = '加载没有完成';
+      hint.textContent = error.name === 'AbortError' ? '网络连续 25 秒没有新数据，请检查网络后重试' : error.message;
+      document.getElementById('load-retry').hidden = false;
+      throw error;
+    }
+  };
+  document.getElementById('load-retry').onclick = () => location.reload();
+  render();
+})();
+
 </script>
 <style>
 #status-splash{display:none!important}
-#status:before{content:'痰途 · 全勤之路';color:#f6ce55;font:700 34px sans-serif;margin-bottom:20px}
-#status:after{content:'正在装好车铃、擦亮衬衫… 首次加载请稍等';color:#f7efd5;font:15px sans-serif}
-#status-progress{position:relative;bottom:auto;width:min(360px,75%);height:12px;margin:12px auto 25px;accent-color:#f6ce55}
+#status{font-family:system-ui,sans-serif;padding:24px;box-sizing:border-box;text-align:center;gap:8px}
+#status h1{font-size:clamp(24px,5vw,34px);color:#f6ce55;margin:0 0 20px}
+#status p{margin:0;max-width:600px}
+#load-detail{font-size:20px;color:#fff3d1}
+#load-meter{font-size:26px;font-variant-numeric:tabular-nums;color:#f6ce55}
+#load-hint{font-size:15px;min-height:42px;color:#fff3d1}
+#load-cache{font-size:13px;color:#b9cec7}
+#status-progress{position:relative;bottom:auto;width:min(420px,85%);height:14px;margin:10px auto 20px;accent-color:#f6ce55;order:1}
+#status-notice{position:static;max-width:600px;font-size:13px}
+#load-retry{padding:12px 28px;background:#f6ce55;color:#293b57;border:3px solid #fff3d1;font-size:16px;cursor:pointer}
 #rotate-hint{display:none;position:fixed;bottom:10px;left:12px;right:12px;text-align:center;color:#f7efd5;font:14px sans-serif;pointer-events:none}
 @media(orientation:portrait) and (max-width:700px){#rotate-hint{display:block}}
 </style>
 <script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":9248000,"index.wasm":43699190},"focusCanvas":true,"gdextensionLibs":[]};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":1772032,"index.wasm":43699190},"focusCanvas":true,"gdextensionLibs":[]};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -173,6 +287,7 @@ const engine = new Engine(GODOT_CONFIG);
 	}
 
 	function displayFailureNotice(err) {
+ document.getElementById('load-retry').hidden = false;
 		console.error(err);
 		if (err instanceof Error) {
 			setStatusNotice(err.message);
@@ -223,15 +338,7 @@ const engine = new Engine(GODOT_CONFIG);
 	} else {
 		setStatusMode('progress');
 		engine.startGame({
-			'onProgress': function (current, total) {
-				if (current > 0 && total > 0) {
-					statusProgress.value = current;
-					statusProgress.max = total;
-				} else {
-					statusProgress.removeAttribute('value');
-					statusProgress.removeAttribute('max');
-				}
-			},
+			'onProgress': function () {},
 		}).then(() => {
 			setStatusMode('hidden');
 		}, displayFailureNotice);

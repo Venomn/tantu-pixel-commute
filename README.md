@@ -78,6 +78,7 @@ Godot 4.4.1 / GDScript 制作的浏览器掌机像素风恶搞通勤游戏。无
 用 Godot 4.4.1 打开 `project.godot`，运行主场景。采用 Compatibility 渲染器、单线程 Web 导出，不依赖 SharedArrayBuffer 或特殊跨域隔离响应头。
 
 ```sh
+python3 tools/subset_font.py # 需要安装 fonttools；从完整字体生成游戏字形
 godot --headless --path . --editor --import --quit
 godot --headless --path . --script tests/run_tests.gd
 godot --headless --path . --script tests/traffic_tests.gd
@@ -86,12 +87,13 @@ godot --headless --path . --script tests/roguelite_tests.gd
 godot --headless --path . --script tests/ride_simulation.gd
 godot --headless --path . --export-release Web dist/index.html
 python3 tools/prepare_web.py
+node --test tests/web_loader_tests.cjs
 python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 ```
 
 浏览器访问 `http://127.0.0.1:8765`。不要直接双击导出的 HTML；WebAssembly 需要 HTTP 服务。原生版不需要最后三步。
 
-`prepare_web.py` 将引擎 gzip 压缩，并使用浏览器流式解压，避免静态托管单文件大小限制；每次导出后重新执行。下载失败会显示错误，可刷新重试。
+`prepare_web.py` 压缩引擎和资源包，显示实际下载量、速度和预计剩余下载时间；下载后单独显示引擎启动阶段。SHA-256 校验后缓存压缩文件，资源变化按内容版本重新下载；缓存受限、损坏或额度不足时仍可正常下载。连续 25 秒无数据会提示重试。每次改游戏文案，先运行 `subset_font.py`（需要 FontTools）再导出；完整字体位于排除导出的 `tools/fonts/`，构建检查会阻止遗漏新字形。
 
 ## 文件
 
