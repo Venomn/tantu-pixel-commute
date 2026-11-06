@@ -100,6 +100,7 @@ var portrait := false
 var safe_top := 0.0
 var safe_bottom := 0.0
 var mobile_view
+var reward_view
 var garage_view
 var layout_size := Vector2i.ZERO
 var web_pause_callback: JavaScriptObject
@@ -144,6 +145,8 @@ func _ready() -> void:
 	garage_view=preload("res://scripts/garage_ui.gd").new()
 	add_child(garage_view)
 	garage_view.setup(self)
+	reward_view=preload("res://scripts/reward_ui.gd").new()
+	add_child(reward_view);reward_view.setup(self)
 	get_window().size_changed.connect(func(): call_deferred("update_layout"))
 	update_layout()
 	build_ui()
@@ -262,10 +265,11 @@ func button(label: String, box: Rect2, action: Callable, accent := false) -> But
 func build_ui() -> void:
 	clear_ui()
 	if garage_view:garage_view.build()
+	if reward_view:reward_view.build()
 	if mobile_view:
 		position_world()
 		mobile_view.build()
-		if mobile or state=="shop": return
+		if mobile or state in ["shop","upgrade"]: return
 	match state:
 		"menu":
 			button("开始", Rect2(56,328,286,52), request_new_game, true)
@@ -300,10 +304,6 @@ func build_ui() -> void:
 			button("音效：" + ("关" if muted else "开"), Rect2(330,355,145,44), toggle_sound)
 			button("音乐：" + ("开" if music_on else "关"), Rect2(485,355,145,44), toggle_music)
 			button("结束本局 · 回改装铺", Rect2(330,417,300,44), abandon_run)
-		"upgrade":
-			for i in perk_choices.size():
-				var choice := i
-				button("选择  [%d]" % (i+1),Rect2(123+i*244,420,214,46),func(): choose_perk(choice),true)
 
 func toggle_sound() -> void:
 	muted = not muted
@@ -811,7 +811,7 @@ func panel(box: Rect2, color := CREAM) -> void:
 	draw_rect(Rect2(box.position+Vector2(4,4),box.size-Vector2(8,8)),Color("a2b1bb") if color==CREAM else color.lightened(.2),false,2)
 
 func _draw() -> void:
-	if not font or state=="shop": return
+	if not font or state in ["shop","upgrade"]: return
 	if mobile:
 		if state=="play":draw_world()
 		return
@@ -838,7 +838,6 @@ func _draw() -> void:
 			panel(Rect2(265,148,430,345))
 			centered("路边歇一会儿",208,33)
 			centered("时间和危险都暂停了。",252,17)
-		"upgrade": draw_upgrade()
 
 func draw_menu() -> void:
 	rect(0,0,960,600,INK)
@@ -1318,81 +1317,3 @@ func draw_perk_hud() -> void:
 		txt(name+suffix,40,305+row*37,13,CREAM)
 		row+=1
 	txt("结束后清空",29,452,12,Color("a7beb6"))
-
-func draw_upgrade() -> void:
-	panel(Rect2(78,60,804,475),Color("fff3d1"))
-	centered("通勤奇遇",111,34)
-	centered("%s · 三选一" % ("出门的好运气" if perk_stage==1 else "路上的小惊喜"),149,19,TEAL)
-	centered("本局有效 · 选择时已暂停 · 数字 1 / 2 / 3 或点击",179,14,TEAL)
-	for i in perk_choices.size():
-		var id: int = perk_choices[i]
-		var perk: Dictionary = Perks.ITEMS[id]
-		var x := 115+i*244
-		panel(Rect2(x,202,230,276),Color("e8dfc4"))
-		rect(x+6,208,218,32,Color(perk.color))
-		txt(perk.tag+" / 本局强化",x+16,231,14,INK)
-		draw_item_icon(perk.icon,Vector2(x+115,281),1.6)
-		txt(perk.name,x+20,335,25,INK)
-		txt(perk.desc[0],x+20,370,16,INK)
-		txt(perk.desc[1],x+20,396,14,TEAL)
-	centered("局内搭配打法，局外积累装备。每次出门都有新花样。",511,15,TEAL)
-
-func draw_item_icon(id: int, pos: Vector2, zoom := 1.0) -> void:
-	if id==0:
-		draw_coin(pos,zoom)
-		return
-	draw_set_transform(pos,0,Vector2.ONE*zoom)
-	match id:
-		1:
-			for i in 8:
-				var p := Vector2(cos(i*PI/4),sin(i*PI/4))*14
-				rect(p.x-3,p.y-3,6,6,TEAL)
-			draw_arc(Vector2.ZERO,10,0,TAU,12,INK,6)
-			rect(-3,-3,6,6,YELLOW)
-		2:
-			draw_line(Vector2(-16,-11),Vector2(10,-11),INK,6)
-			draw_line(Vector2(8,-11),Vector2(-7,13),TEAL,5)
-			draw_line(Vector2(-7,13),Vector2(-17,15),INK,5)
-			rect(-3,-13,6,6,YELLOW)
-		3:
-			draw_line(Vector2(4,17),Vector2(4,0),INK,4)
-			rect(-12,-16,27,20,INK);rect(-9,-13,21,14,Color("90cfdd"))
-			rect(-6,-11,10,3,CREAM)
-		4:
-			draw_colored_polygon(PackedVector2Array([Vector2(-15,-15),Vector2(15,-15),Vector2(13,7),Vector2(0,19),Vector2(-13,7)]),INK)
-			draw_colored_polygon(PackedVector2Array([Vector2(-11,-11),Vector2(11,-11),Vector2(9,5),Vector2(0,13),Vector2(-9,5)]),Color("78b6df"))
-			rect(-2,-7,4,16,CREAM);rect(-7,-1,14,4,CREAM)
-		5:
-			draw_line(Vector2.ZERO,Vector2(0,16),INK,4)
-			draw_colored_polygon(PackedVector2Array([Vector2(-19,0),Vector2(-12,-13),Vector2(0,-18),Vector2(12,-13),Vector2(19,0)]),RED)
-			draw_line(Vector2(0,-18),Vector2.ZERO,CREAM,3)
-		6:
-			rect(-14,-8,28,17,INK);rect(-11,-5,22,11,TEAL)
-			rect(-6,8,8,10,INK);rect(12,-11,7,23,Color("78b6df"))
-			draw_arc(Vector2(24,-5),5,0,TAU,10,TEAL,2)
-		7:
-			rect(-14,-14,8,27,RED);rect(6,-14,8,27,Color("78b6df"));rect(-14,9,28,8,INK)
-			rect(-14,-15,8,7,CREAM);rect(6,-15,8,7,CREAM)
-		8:
-			draw_line(Vector2(-15,15),Vector2(-6,-2),INK,8)
-			draw_line(Vector2(-6,-2),Vector2(9,-10),YELLOW,7)
-			draw_arc(Vector2(12,-12),9,0,PI*1.5,8,INK,4)
-			rect(-19,12,16,6,TEAL)
-		9:
-			rect(-9,-15,18,29,INK);rect(-6,-12,12,22,RED)
-			rect(-4,-18,8,4,CREAM);rect(-4,-5,8,5,CREAM)
-		10:
-			rect(-12,-7,24,21,CREAM);rect(-11,-23,7,20,CREAM);rect(5,-23,7,20,CREAM)
-			rect(-9,-20,3,12,RED);rect(7,-20,3,12,RED)
-			rect(-7,-2,4,5,INK);rect(4,-2,4,5,INK);rect(-2,5,5,4,RED)
-		11:
-			for i in 3:
-				rect(-19+i*4,-12+i*11,29-i*2,4,TEAL)
-				draw_arc(Vector2(10+i*2,-13+i*11),6,-PI/2,PI/2,8,TEAL,3)
-		12:
-			rect(-12,-16,24,32,INK);rect(-5,-20,10,5,INK);rect(-9,-13,18,26,GREEN)
-			draw_colored_polygon(PackedVector2Array([Vector2(1,-10),Vector2(-6,2),Vector2(0,2),Vector2(-2,12),Vector2(7,-2),Vector2(2,-2)]),CREAM)
-		13:
-			rect(-12,-13,15,27,TEAL);rect(-12,5,30,12,TEAL);rect(-12,14,31,4,INK)
-			rect(-7,-9,9,3,CREAM);rect(-7,-2,9,3,CREAM)
-	draw_set_transform(Vector2.ZERO)

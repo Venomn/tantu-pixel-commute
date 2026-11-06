@@ -81,8 +81,8 @@ func build() -> void:
 	var old_scroll := scroll.scroll_vertical if is_instance_valid(scroll) and built_state==game.state else 0
 	clear_input();regions.clear();control_labels.clear();scroll=null
 	for child in root.get_children(): root.remove_child(child);child.queue_free()
-	root.visible=game.mobile and game.state!="shop"
-	if not game.mobile or game.state=="shop":return
+	root.visible=game.mobile and game.state not in ["shop","upgrade"]
+	if not game.mobile or game.state in ["shop","upgrade"]:return
 	width=game.get_window().content_scale_size.x;height=game.get_window().content_scale_size.y-game.safe_top-game.safe_bottom
 	root.position=Vector2(0,game.safe_top)
 	root.size=Vector2(width,height);built_state=game.state
@@ -112,15 +112,6 @@ func build() -> void:
 			action("出门上班 →",list,game.begin_run,true)
 			action("改装铺 / 装备",list,func():game.open_shop("brief"))
 			action("主菜单",list,func():game.change_state("menu"))
-		"upgrade":
-			text_row("通勤奇遇 · 三选一",list,30,Color("f2d27d"))
-			text_row("选择期间已暂停 · 仅本局有效",list,20)
-			for i in game.perk_choices.size():
-				var choice: int = i
-				var item: Dictionary=game.Perks.ITEMS[game.perk_choices[i]]
-				text_row(item.name+" · "+item.tag,list,25,Color(item.color))
-				text_row((item.desc[0]+"\n"+item.desc[1]).replace("按 F","点技能"),list,20)
-				action("选择「"+item.name+"」",list,func():game.choose_perk(choice),true)
 		"pause":
 			text_row("路边歇一会儿",list,32,Color("f2d27d"))
 			text_row("时间和危险都暂停了。",list)

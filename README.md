@@ -71,7 +71,7 @@ Godot 4.4.1 / GDScript 制作的浏览器掌机像素风恶搞通勤游戏。无
 | 暂停 | P / Esc |
 | 选择强化 | 1 / 2 / 3 |
 
-手机竖屏和横屏自动适配：直接在道路上左右拖动，自行车按横向位移跟随；按下不跳位、手指停住不持续漂移、松手停止转向。底部仅一排冲刺、刹车、铃铛和已装备技能，可多指同时操作。暂停、旋转、后台或全屏操作会清理按住状态。改装铺展示像素工作间、自行车和八种配件图标及实车造型，卡片勾选标记已装备部件。点选配件只试装预览，购买才扣费并装配，已拥有装备可免费换装/卸下；手机采用一屏布局，同时显示自行车、全部配件、完整效果说明和购买/卸下按钮；横屏左右分栏，竖屏上下排布，操作目标至少 44 像素。桌面保留装备槽布局。强化卡使用大按钮与可滚动布局。
+手机竖屏和横屏自动适配：直接在道路上左右拖动，自行车按横向位移跟随；按下不跳位、手指停住不持续漂移、松手停止转向。底部仅一排冲刺、刹车、铃铛和已装备技能，可多指同时操作。暂停、旋转、后台或全屏操作会清理按住状态。改装铺展示像素工作间、自行车和八种配件图标及实车造型，卡片勾选标记已装备部件。点选配件只试装预览，购买才扣费并装配，已拥有装备可免费换装/卸下；手机采用一屏布局，同时显示自行车、全部配件、完整效果说明和购买/卸下按钮；横屏左右分栏，竖屏上下排布，操作目标至少 44 像素。桌面保留装备槽布局。强化选择改为三张完整可点击的图形奖励卡：大图标、名称、核心收益和必要限制，一屏全部可见；竖屏纵排、横屏并排。
 
 右上角「全屏」可进入/退出浏览器全屏；浏览器拒绝时会显示说明。iPhone 内置浏览器可能不支持网页全屏，可在 Safari 通过分享菜单添加到主屏幕，并在可选时开启“作为网页 App 打开”。已提供 standalone 清单和安全区适配，但未声称已在实体 iPhone 上完成安装验证。Web 版需要支持 WebGL 2 和 DecompressionStream 的较新浏览器；声音由首次交互启用。
 
@@ -92,6 +92,7 @@ python3 tools/prepare_web.py
 node --test tests/web_loader_tests.cjs tests/fullscreen_tests.cjs
 godot --headless --path . --script tests/mobile_tests.gd
 godot --headless --path . --script tests/garage_tests.gd
+godot --headless --path . --script tests/reward_tests.gd
 python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 ```
 
@@ -118,6 +119,9 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 - `tests/fullscreen_tests.cjs`：8 项浏览器全屏、拒绝回退、后台暂停检查。
 - `tests/render_mobile.gd`：完整装备下的手机 GPU 画面检查，不随 Web 导出。
 - `tests/roguelite_tests.gd`：44 项三选一、真实效果、结算、永久资产、刷新与存档迁移检查。
+- `scripts/reward_ui.gd` / `scripts/reward_art.gd`：响应式奖励卡和像素图标，整卡选择保留数字键入口。
+- `tests/reward_tests.gd`：44 项全九种奖励、多尺寸无滚动/无重叠、整卡触发、重复选择、快捷键和炮台文案检查。
+- `tests/render_rewards.gd`：九种奖励和横竖屏的实际 GPU 画面。
 - `tests/render_roguelite.gd`：商店、强化卡和金币的固定 GPU 视觉检查场景。
 - `tests/render_equipment.gd`：商店和完整装备的真实 Godot GPU 渲染检查（固定场景，不代表随机通关）。
 - `tests/render_traffic.gd`：真实 Godot GPU 渲染的固定视觉检查场景（不随 Web 游戏导出）。

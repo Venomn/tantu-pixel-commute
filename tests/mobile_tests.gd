@@ -86,7 +86,7 @@ func run() -> void:
 	check(game.state=="shop" and game.garage_view.root.visible,"mobile settlement opens the scrollable shop")
 	for state in ["menu","help","brief","new_confirm","pause","route","upgrade","shop"]:
 		game.change_state(state)
-		check((game.garage_view.root.visible if state=="shop" else view.built_state==state and view.scroll!=null),"mobile %s has a usable menu"%state)
+		check((game.garage_view.root.visible if state=="shop" else (game.reward_view.root.visible if state=="upgrade" else view.built_state==state and view.scroll!=null)),"mobile %s has a usable menu"%state)
 	root.size=Vector2i(1280,720);game.update_layout();await process_frame
 	check(not game.mobile and not view.root.visible and game.scale==Vector2.ONE,"desktop restores original artwork and controls")
 	print("MOBILE RESULT: %d checks, %d failures"%[checks,failures]);quit(1 if failures else 0)
