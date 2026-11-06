@@ -16,6 +16,7 @@ func _initialize() -> void:
 	call_deferred("run")
 
 func run() -> void:
+	root.size=Vector2i(1280,720) # Exercise the desktop Start entry explicitly.
 	check(Rules.probability(2,4,"shortcut") > Rules.probability(2,4,"park"),"route changes probability")
 	check(Rules.probability(2,0,"normal") > Rules.probability(0,0,"normal"),"coughing NPC carries greater risk")
 	check(Rules.duration("week",0)==390 and Rules.duration("week",4)==450,"full week contains 35 minutes base riding")

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 	<head>
 		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+		<meta name="viewport" content="width=device-width, user-scalable=no, viewport-fit=cover, initial-scale=1.0">
 		<title>痰途 · 全勤之路</title>
 		<style>
 html, body, #canvas {
@@ -91,7 +91,7 @@ body {
 }
 		</style>
 		<title>痰途 · 全勤之路</title><meta name="description" content="一个用 Godot 制作的像素恶搞通勤游戏。"><style>body{background:#142e35!important}#status{background:#142e35!important;color:#f3e8ca!important}</style>
-	</head>
+	<!-- tantu-app-meta --><link rel="manifest" href="manifest.webmanifest"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="theme-color" content="#24394c"><!-- /tantu-app-meta --></head>
 	<body>
 		<canvas id="canvas">
 			当前浏览器不支持游戏画布。请使用较新版本的浏览器。
@@ -115,7 +115,7 @@ body {
 		</div>
 
 		<script id="tantu-compressed-loader">
-window.TANTU_ASSETS={"index.wasm": {"file": "index.wasm.gz", "size": 9387768, "hash": "e06c0d789ec74af82a668c7c3e5697d06ff782a9ea8cfe35b2e482393bdb2872"}, "index.pck": {"file": "index.pck.gz", "size": 1482235, "hash": "401b3ebadb925ab14c115721b6721df0951aee1da1cf4860d8cfc67c8c90366d"}};
+window.TANTU_ASSETS={"index.wasm": {"file": "index.wasm.gz", "size": 9387768, "hash": "e06c0d789ec74af82a668c7c3e5697d06ff782a9ea8cfe35b2e482393bdb2872"}, "index.pck": {"file": "index.pck.gz", "size": 1502341, "hash": "a16c29147ffe3bfdfdbcb3638281b1b9bac4b2b811abf3eceefa522cae71a9e4"}};
 /* Compressed, content-addressed game assets. No save data is stored here. */
 (() => {
   const assets = window.TANTU_ASSETS;
@@ -243,12 +243,10 @@ window.TANTU_ASSETS={"index.wasm": {"file": "index.wasm.gz", "size": 9387768, "h
 #status-progress{position:relative;bottom:auto;width:min(420px,85%);height:14px;margin:10px auto 20px;accent-color:#f6ce55;order:1}
 #status-notice{position:static;max-width:600px;font-size:13px}
 #load-retry{padding:12px 28px;background:#f6ce55;color:#293b57;border:3px solid #fff3d1;font-size:16px;cursor:pointer}
-#rotate-hint{display:none;position:fixed;bottom:10px;left:12px;right:12px;text-align:center;color:#f7efd5;font:14px sans-serif;pointer-events:none}
-@media(orientation:portrait) and (max-width:700px){#rotate-hint{display:block}}
 </style>
 <script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":1772032,"index.wasm":43699190},"focusCanvas":true,"gdextensionLibs":[]};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":1792560,"index.wasm":43699190},"focusCanvas":true,"gdextensionLibs":[]};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -345,6 +343,58 @@ const engine = new Engine(GODOT_CONFIG);
 	}
 }());
 		</script>
-	<div id="rotate-hint">横过手机骑行，按钮会更好按 ↻</div></body>
+	<!-- tantu-mobile-shell -->
+<style>
+:root{--safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px)}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;background:#24394c}
+#canvas{touch-action:none}
+#fullscreen-toggle{position:fixed;right:max(8px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top));z-index:20;min-width:78px;min-height:44px;border:2px solid #f2d27d;border-radius:8px;background:#293b57;color:#fff3d1;font:600 15px system-ui;touch-action:manipulation}
+#fullscreen-help{position:fixed;inset:auto 12px max(16px,env(safe-area-inset-bottom));z-index:30;padding:18px;background:#fff3d1;color:#293b57;border:3px solid #526780;border-radius:10px;box-shadow:0 4px 20px #0008;font:16px/1.6 system-ui;max-width:520px;margin:auto}
+#fullscreen-help button{display:block;min-height:44px;margin:12px 0 0 auto;padding:8px 22px;border:2px solid #293b57;border-radius:6px;background:#f2d27d;font:600 16px system-ui}
+</style>
+<button id="fullscreen-toggle" aria-label="进入全屏">⛶ 全屏</button>
+<div id="fullscreen-help" role="status" hidden><span id="fullscreen-message"></span><button id="fullscreen-dismiss">知道了</button></div>
+<script id="tantu-fullscreen">
+(() => {
+  const button = document.getElementById('fullscreen-toggle');
+  const help = document.getElementById('fullscreen-help');
+  const message = document.getElementById('fullscreen-message');
+  const standalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const active = () => document.fullscreenElement || document.webkitFullscreenElement;
+  function update() {
+    button.textContent = standalone() ? '已铺满屏幕' : (active() ? '退出全屏' : '⛶ 全屏');
+    button.setAttribute('aria-label', active() ? '退出全屏' : '进入全屏');
+    button.disabled = standalone();
+  }
+  function explain() {
+    message.textContent = '此浏览器暂不允许网页全屏。竖屏也能直接玩。iPhone 可在 Safari 打开，选择“分享 → 添加到主屏幕”（如有“作为网页 App 打开”请开启），再从桌面图标进入；安卓可在浏览器菜单中添加到主屏幕。';
+    help.hidden = false;
+  }
+  const pauseGame = () => { if (typeof window.tantuPause === 'function') window.tantuPause(); };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+  window.addEventListener('blur', pauseGame);
+  button.addEventListener('click', async () => {
+    pauseGame();
+    help.hidden = true;
+    try {
+      if (active()) {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) await exit.call(document);
+      } else {
+        const request = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
+        if (!request) { explain(); return; }
+        await request.call(document.documentElement);
+      }
+      update();
+    } catch (_) { explain(); update(); }
+  });
+  document.getElementById('fullscreen-dismiss').addEventListener('click', () => {help.hidden=true;});
+  document.addEventListener('fullscreenchange',update);
+  document.addEventListener('webkitfullscreenchange',update);
+  update();
+})();
+</script>
+<!-- /tantu-mobile-shell -->
+</body>
 </html>
 

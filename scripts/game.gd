@@ -96,6 +96,12 @@ var brake_was := false
 var total_throws := 0
 var last_spawn_kind := 0
 var mobile := false
+var portrait := false
+var safe_top := 0.0
+var safe_bottom := 0.0
+var mobile_view
+var layout_size := Vector2i.ZERO
+var web_pause_callback: JavaScriptObject
 
 func _ready() -> void:
 	font = load("res://assets/Chinese.otf")
@@ -131,9 +137,45 @@ func _ready() -> void:
 		effects.append(effect)
 	load_save()
 	mobile = OS.has_feature("web_android") or OS.has_feature("web_ios") or DisplayServer.is_touchscreen_available()
+	mobile_view = preload("res://scripts/mobile_ui.gd").new()
+	add_child(mobile_view)
+	mobile_view.setup(self)
+	get_window().size_changed.connect(func(): call_deferred("update_layout"))
+	update_layout()
 	build_ui()
 	if OS.has_feature("web"):
+		web_pause_callback=JavaScriptBridge.create_callback(func(_args):
+			if state=="play":pause_game())
+		JavaScriptBridge.get_interface("window").tantuPause=web_pause_callback
 		JavaScriptBridge.eval("window.tantuReady = true;")
+
+func update_layout() -> void:
+	var physical := get_window().size
+	if physical==layout_size:return
+	layout_size=physical
+	var is_small := physical.x<900 or (physical.y<600 and physical.x<1200)
+	mobile=OS.has_feature("web_android") or OS.has_feature("web_ios") or DisplayServer.is_touchscreen_available() or is_small
+	portrait=mobile and physical.x<physical.y
+	get_window().content_scale_size=Vector2i(480,maxi(640,int(480.0*physical.y/maxi(1,physical.x)))) if portrait else (Vector2i(maxi(960,int(600.0*physical.x/maxi(1,physical.y))),maxi(600,int(960.0*physical.y/maxi(1,physical.x)))) if mobile else Vector2i(960,600))
+	if OS.has_feature("web"):
+		var ratio := float(get_window().content_scale_size.x)/maxi(1,physical.x)
+		safe_top=float(JavaScriptBridge.eval("parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-top')) || 0"))*ratio
+		safe_bottom=float(JavaScriptBridge.eval("parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-bottom')) || 0"))*ratio
+	position_world()
+	if mobile_view:mobile_view.clear_input()
+	if state=="play":pause_game()
+	elif ui:build_ui()
+	queue_redraw()
+
+func mobile_controls_height() -> float:
+	return 250.0 if portrait and (has_blaster() or equipped.has(5)) else 174.0
+
+func position_world() -> void:
+	if portrait:
+		scale=Vector2(.96,.96)
+		position=Vector2(240-480*.96,get_window().content_scale_size.y-safe_bottom-mobile_controls_height()-65-450*.96)
+	else:
+		scale=Vector2.ONE;position=Vector2((get_window().content_scale_size.x-960)/2.0,0) if mobile else Vector2.ZERO
 
 func load_save() -> void:
 	if FileAccess.file_exists(save_path):
@@ -178,6 +220,7 @@ func clear_ui() -> void:
 		ui.remove_child(child)
 		child.queue_free()
 	for key in touch: touch[key] = false
+	if mobile_view: mobile_view.clear_input()
 
 func button(label: String, box: Rect2, action: Callable, accent := false) -> Button:
 	var b := Button.new()
@@ -214,6 +257,10 @@ func button(label: String, box: Rect2, action: Callable, accent := false) -> But
 
 func build_ui() -> void:
 	clear_ui()
+	if mobile_view:
+		position_world()
+		mobile_view.build()
+		if mobile: return
 	match state:
 		"menu":
 			button("开始", Rect2(56,328,286,52), request_new_game, true)
@@ -462,6 +509,7 @@ func finish_run() -> void:
 	settle_run("arrival")
 
 func _process(dt: float) -> void:
+	if mobile_view: mobile_view.update_hud()
 	clock += dt
 	toast_time = maxf(0, toast_time-dt)
 	if state == "play":
@@ -494,6 +542,7 @@ func update_game(dt: float) -> void:
 	brake_was = braking
 	stamina = clampf(stamina + dt * (-26 if sprinting else (23 if gear==1 else 17)+perk_level(1)*8),0,100)
 	var direction := float(held("right"))-float(held("left"))
+	if mobile and mobile_view and mobile_view.steering_id!=-999: direction=mobile_view.steering_axis
 	var old_player := Vector2(player_x,450)
 	player_x = clampf(player_x + direction*dt*(205 if not braking else 160)*(1.0+perk_level(0)*.25),283,677)
 	distance += speed*dt
@@ -760,6 +809,9 @@ func panel(box: Rect2, color := CREAM) -> void:
 
 func _draw() -> void:
 	if not font: return
+	if mobile:
+		if state=="play":draw_world()
+		return
 	if state == "menu": draw_menu(); return
 	draw_world()
 	draw_hud()
@@ -826,7 +878,13 @@ func draw_city(offset: float) -> void:
 		pixel_sprite("flowers",Vector2(875,y+195),3)
 
 func draw_world() -> void:
-	tile_area("grass",Rect2(0,0,960,600),road_scroll)
+	if mobile:tile_area("grass",Rect2(-position/scale,Vector2(get_window().content_scale_size)/scale),road_scroll)
+	if portrait:
+		var top := minf(0,-position.y/scale.y)
+		tile_area("paving",Rect2(196,top,67,-top),road_scroll)
+		tile_area("paving",Rect2(697,top,67,-top),road_scroll)
+		tile_area("road",Rect2(263,top,434,-top),road_scroll)
+	if not mobile:tile_area("grass",Rect2(0,0,960,600),road_scroll)
 	tile_area("paving",Rect2(196,0,67,600),road_scroll)
 	tile_area("paving",Rect2(697,0,67,600),road_scroll)
 	tile_area("road",Rect2(263,0,434,600),road_scroll)

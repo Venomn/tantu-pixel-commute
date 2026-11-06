@@ -25,6 +25,8 @@ html = (dist / 'index.html').read_text()
 # Idempotently replace our own injection, including exports prepared by the old loader.
 html = re.sub(r'<script id="tantu-compressed-loader">.*?</style>\s*', '', html, flags=re.S)
 html = re.sub(r'<div id="rotate-hint">.*?</div>', '', html)
+html = re.sub(r'<!-- tantu-mobile-shell -->.*?<!-- /tantu-mobile-shell -->\s*', '', html, flags=re.S)
+html = re.sub(r'<!-- tantu-app-meta -->.*?<!-- /tantu-app-meta -->', '', html, flags=re.S)
 html = re.sub(r'<!-- tantu-status -->.*?<!-- /tantu-status -->', '', html, flags=re.S)
 status = '''<!-- tantu-status -->
 <h1>痰途 · 全勤之路</h1>
@@ -48,18 +50,20 @@ loader += '''<style>
 #status-progress{position:relative;bottom:auto;width:min(420px,85%);height:14px;margin:10px auto 20px;accent-color:#f6ce55;order:1}
 #status-notice{position:static;max-width:600px;font-size:13px}
 #load-retry{padding:12px 28px;background:#f6ce55;color:#293b57;border:3px solid #fff3d1;font-size:16px;cursor:pointer}
-#rotate-hint{display:none;position:fixed;bottom:10px;left:12px;right:12px;text-align:center;color:#f7efd5;font:14px sans-serif;pointer-events:none}
-@media(orientation:portrait) and (max-width:700px){#rotate-hint{display:block}}
 </style>
 '''
 html = html.replace('<script src="index.js"></script>', loader + '<script src="index.js"></script>')
 html = html.replace('<html lang="en">', '<html lang="zh-CN">')
-html = html.replace('</body>', '<div id="rotate-hint">横过手机骑行，按钮会更好按 ↻</div></body>')
+html = html.replace('</body>', (root/'tools/mobile_shell.html').read_text()+'</body>')
+html = html.replace('user-scalable=no', 'user-scalable=no, viewport-fit=cover') if 'viewport-fit=cover' not in html else html
+html = html.replace('</head>', '<!-- tantu-app-meta --><link rel="manifest" href="manifest.webmanifest"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="theme-color" content="#24394c"><!-- /tantu-app-meta --></head>')
+(dist/'manifest.webmanifest').write_text(json.dumps({'name':'痰途 · 全勤之路','short_name':'痰途','start_url':'./','scope':'./','display':'standalone','background_color':'#24394c','theme_color':'#24394c','icons':[{'src':'app-icon.svg','sizes':'any','type':'image/svg+xml'}]},ensure_ascii=False))
 html = html.replace('Your browser does not support the canvas tag.', '当前浏览器不支持游戏画布。请使用较新版本的浏览器。')
 # Godot reports uncompressed byte counts; our progress reports actual transfer bytes instead.
 html = re.sub(r"'onProgress': function \(current, total\) \{.*?\n\t\t\t\},", "'onProgress': function () {},", html, flags=re.S)
 # Also expose retry for failures that occur after downloads (e.g. WebGL initialization).
 html = re.sub(r"function displayFailureNotice\(err\) \{(?:\n document.getElementById\('load-retry'\).hidden = false;)*", "function displayFailureNotice(err) {\n document.getElementById('load-retry').hidden = false;", html)
+(dist/'app-icon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#293b57"/><path d="M12 12h40v10H37v30H27V22H12z" fill="#f2d27d"/></svg>')
 (dist / 'index.html').write_text(html)
 (dist / 'licenses.txt').write_text('Godot Engine\n\n' + (root/'GODOT-LICENSE.txt').read_text() + '\n\nNoto Sans SC\n\n' + (root/'assets/FONT-LICENSE.txt').read_text())
 for file in dist.glob('*.import'): file.unlink()

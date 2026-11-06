@@ -1,0 +1,52 @@
+<!-- tantu-mobile-shell -->
+<style>
+:root{--safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px)}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;background:#24394c}
+#canvas{touch-action:none}
+#fullscreen-toggle{position:fixed;right:max(8px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top));z-index:20;min-width:78px;min-height:44px;border:2px solid #f2d27d;border-radius:8px;background:#293b57;color:#fff3d1;font:600 15px system-ui;touch-action:manipulation}
+#fullscreen-help{position:fixed;inset:auto 12px max(16px,env(safe-area-inset-bottom));z-index:30;padding:18px;background:#fff3d1;color:#293b57;border:3px solid #526780;border-radius:10px;box-shadow:0 4px 20px #0008;font:16px/1.6 system-ui;max-width:520px;margin:auto}
+#fullscreen-help button{display:block;min-height:44px;margin:12px 0 0 auto;padding:8px 22px;border:2px solid #293b57;border-radius:6px;background:#f2d27d;font:600 16px system-ui}
+</style>
+<button id="fullscreen-toggle" aria-label="进入全屏">⛶ 全屏</button>
+<div id="fullscreen-help" role="status" hidden><span id="fullscreen-message"></span><button id="fullscreen-dismiss">知道了</button></div>
+<script id="tantu-fullscreen">
+(() => {
+  const button = document.getElementById('fullscreen-toggle');
+  const help = document.getElementById('fullscreen-help');
+  const message = document.getElementById('fullscreen-message');
+  const standalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const active = () => document.fullscreenElement || document.webkitFullscreenElement;
+  function update() {
+    button.textContent = standalone() ? '已铺满屏幕' : (active() ? '退出全屏' : '⛶ 全屏');
+    button.setAttribute('aria-label', active() ? '退出全屏' : '进入全屏');
+    button.disabled = standalone();
+  }
+  function explain() {
+    message.textContent = '此浏览器暂不允许网页全屏。竖屏也能直接玩。iPhone 可在 Safari 打开，选择“分享 → 添加到主屏幕”（如有“作为网页 App 打开”请开启），再从桌面图标进入；安卓可在浏览器菜单中添加到主屏幕。';
+    help.hidden = false;
+  }
+  const pauseGame = () => { if (typeof window.tantuPause === 'function') window.tantuPause(); };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+  window.addEventListener('blur', pauseGame);
+  button.addEventListener('click', async () => {
+    pauseGame();
+    help.hidden = true;
+    try {
+      if (active()) {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) await exit.call(document);
+      } else {
+        const request = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
+        if (!request) { explain(); return; }
+        await request.call(document.documentElement);
+      }
+      update();
+    } catch (_) { explain(); update(); }
+  });
+  document.getElementById('fullscreen-dismiss').addEventListener('click', () => {help.hidden=true;});
+  document.addEventListener('fullscreenchange',update);
+  document.addEventListener('webkitfullscreenchange',update);
+  update();
+})();
+</script>
+<!-- /tantu-mobile-shell -->
