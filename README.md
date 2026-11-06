@@ -71,7 +71,7 @@ Godot 4.4.1 / GDScript 制作的浏览器掌机像素风恶搞通勤游戏。无
 | 暂停 | P / Esc |
 | 选择强化 | 1 / 2 / 3 |
 
-手机竖屏和横屏自动适配：左手在大面积滑动区左右拖动转向，松手停止转向；右手按住冲刺或刹车，点击铃铛和装备技能，可多指同时操作。暂停、旋转、后台或全屏操作会清理按住状态。商店和强化卡使用大按钮与可滚动布局。
+手机竖屏和横屏自动适配：直接在道路上左右拖动，自行车按横向位移跟随；按下不跳位、手指停住不持续漂移、松手停止转向。底部仅一排冲刺、刹车、铃铛和已装备技能，可多指同时操作。暂停、旋转、后台或全屏操作会清理按住状态。改装铺展示像素工作间、自行车和四个装备槽，八种配件都有图标及实车造型。点选配件只试装预览，购买才扣费并装配，已拥有装备可免费换装/卸下；手机内容可滚动，出发按钮固定在底部。强化卡使用大按钮与可滚动布局。
 
 右上角「全屏」可进入/退出浏览器全屏；浏览器拒绝时会显示说明。iPhone 内置浏览器可能不支持网页全屏，可在 Safari 通过分享菜单添加到主屏幕，并在可选时开启“作为网页 App 打开”。已提供 standalone 清单和安全区适配，但未声称已在实体 iPhone 上完成安装验证。Web 版需要支持 WebGL 2 和 DecompressionStream 的较新浏览器；声音由首次交互启用。
 
@@ -91,6 +91,7 @@ godot --headless --path . --export-release Web dist/index.html
 python3 tools/prepare_web.py
 node --test tests/web_loader_tests.cjs tests/fullscreen_tests.cjs
 godot --headless --path . --script tests/mobile_tests.gd
+godot --headless --path . --script tests/garage_tests.gd
 python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 ```
 
@@ -111,7 +112,9 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 - `tests/run_tests.gd`：51 项规则与场景集成检查。
 - `tests/traffic_tests.gd`：70 项车流、预警、密度和生命周期检查。
 - `tests/equipment_tests.gd`：51 项金币、换装、主动防御/攻击、垃圾回投、存档迁移及生命周期检查。测试使用隔离 QA 存档。
-- `tests/mobile_tests.gd`：46 项手机入口、多指输入、释放/取消、旋转/后台、技能和道路无遮挡检查。
+- `tests/mobile_tests.gd`：50 项手机入口、多指输入、释放/取消、旋转/后台、技能和道路无遮挡检查。
+- `tests/garage_tests.gd`：24 项试装不扣费、不修改存档、真实购买、换装、卸下、重载和桌面共享商店流程检查。
+- `scripts/garage_ui.gd` / `scripts/garage_art.gd`：响应式图形车库及原创像素自行车配件预览。
 - `tests/fullscreen_tests.cjs`：8 项浏览器全屏、拒绝回退、后台暂停检查。
 - `tests/render_mobile.gd`：完整装备下的手机 GPU 画面检查，不随 Web 导出。
 - `tests/roguelite_tests.gd`：44 项三选一、真实效果、结算、永久资产、刷新与存档迁移检查。

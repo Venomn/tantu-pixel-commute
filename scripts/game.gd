@@ -100,6 +100,7 @@ var portrait := false
 var safe_top := 0.0
 var safe_bottom := 0.0
 var mobile_view
+var garage_view
 var layout_size := Vector2i.ZERO
 var web_pause_callback: JavaScriptObject
 
@@ -140,6 +141,9 @@ func _ready() -> void:
 	mobile_view = preload("res://scripts/mobile_ui.gd").new()
 	add_child(mobile_view)
 	mobile_view.setup(self)
+	garage_view=preload("res://scripts/garage_ui.gd").new()
+	add_child(garage_view)
+	garage_view.setup(self)
 	get_window().size_changed.connect(func(): call_deferred("update_layout"))
 	update_layout()
 	build_ui()
@@ -168,7 +172,7 @@ func update_layout() -> void:
 	queue_redraw()
 
 func mobile_controls_height() -> float:
-	return 250.0 if portrait and (has_blaster() or equipped.has(5)) else 174.0
+	return 106.0
 
 func position_world() -> void:
 	if portrait:
@@ -257,10 +261,11 @@ func button(label: String, box: Rect2, action: Callable, accent := false) -> But
 
 func build_ui() -> void:
 	clear_ui()
+	if garage_view:garage_view.build()
 	if mobile_view:
 		position_world()
 		mobile_view.build()
-		if mobile: return
+		if mobile or state=="shop": return
 	match state:
 		"menu":
 			button("开始", Rect2(56,328,286,52), request_new_game, true)
@@ -299,14 +304,6 @@ func build_ui() -> void:
 			for i in perk_choices.size():
 				var choice := i
 				button("选择  [%d]" % (i+1),Rect2(123+i*244,420,214,46),func(): choose_perk(choice),true)
-		"shop":
-			for i in Equipment.ITEMS.size():
-				var item := i + 1
-				var label := "卸下" if equipped.has(item) else ("装备" if owned.has(item) else "购买 · %d 金" % Equipment.ITEMS[i].price)
-				var buy := button(label,Rect2(62+(i%4)*216,269+(i/4)*180,190,32),func(): buy_gear(item),equipped.has(item))
-				buy.disabled = not owned.has(item) and coins < Equipment.ITEMS[i].price
-			button("新一周，出发！" if wins==5 else "出发 · 第 %d 天 →" % (day+1),Rect2(327,532,306,42),depart_shop,true)
-			button("主菜单",Rect2(66,532,138,38),func(): change_state("menu"))
 
 func toggle_sound() -> void:
 	muted = not muted
@@ -407,6 +404,9 @@ func notify(message: String, seconds := 3.0) -> void:
 	toast_time = seconds
 
 func held(name: String) -> bool:
+	if mobile and mobile_view and mobile_view.steering_id!=-999:
+		if name=="left":return mobile_view.steering_target<player_x-1
+		if name=="right":return mobile_view.steering_target>player_x+1
 	if touch.get(name, false): return true
 	match name:
 		"left": return Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT)
@@ -542,9 +542,12 @@ func update_game(dt: float) -> void:
 	brake_was = braking
 	stamina = clampf(stamina + dt * (-26 if sprinting else (23 if gear==1 else 17)+perk_level(1)*8),0,100)
 	var direction := float(held("right"))-float(held("left"))
-	if mobile and mobile_view and mobile_view.steering_id!=-999: direction=mobile_view.steering_axis
 	var old_player := Vector2(player_x,450)
-	player_x = clampf(player_x + direction*dt*(205 if not braking else 160)*(1.0+perk_level(0)*.25),283,677)
+	if mobile and mobile_view and mobile_view.steering_id!=-999:
+		# Follow the finger without teleporting; existing swept collisions still see the whole movement.
+		player_x=move_toward(player_x,mobile_view.steering_target,dt*(450 if not braking else 330)*(1.0+perk_level(0)*.25))
+	else:
+		player_x = clampf(player_x + direction*dt*(205 if not braking else 160)*(1.0+perk_level(0)*.25),283,677)
 	distance += speed*dt
 	road_scroll += speed*dt
 	spawn_timer -= dt
@@ -808,7 +811,7 @@ func panel(box: Rect2, color := CREAM) -> void:
 	draw_rect(Rect2(box.position+Vector2(4,4),box.size-Vector2(8,8)),Color("a2b1bb") if color==CREAM else color.lightened(.2),false,2)
 
 func _draw() -> void:
-	if not font: return
+	if not font or state=="shop": return
 	if mobile:
 		if state=="play":draw_world()
 		return
@@ -836,7 +839,6 @@ func _draw() -> void:
 			centered("路边歇一会儿",208,33)
 			centered("时间和危险都暂停了。",252,17)
 		"upgrade": draw_upgrade()
-		"shop": draw_shop()
 
 func draw_menu() -> void:
 	rect(0,0,960,600,INK)
@@ -1076,32 +1078,6 @@ func draw_route() -> void:
 	txt("少骑约 4% 路程",514,351,16,TEAL)
 	centered("老板：选哪条都行，反正别迟到。",480,15)
 
-func draw_shop() -> void:
-	panel(Rect2(38,22,884,560))
-	txt("下班改装铺",65,63,30,INK)
-	txt("局外成长 · 装备永久拥有",66,89,15,TEAL)
-	draw_coin(Vector2(758,61),.9)
-	txt(str(coins),782,72,29,INK)
-	var summary := "出门前先改装。买断拥有，换装免费；同类装备限一件。"
-	if not last_result.is_empty():
-		var title: String = {"arrival":"打卡成功！","spit":"衣服中招了。","trash":"垃圾翻车了。","late":"迟到啦。","quit":"本局已结束。"}.get(last_result.reason,"本局结束。")
-		summary = "%s 本局收获 %d + 奖金 %d 金，已入钱包。临时强化已清空。" % [title,last_result.earned,last_result.bonus]
-		if wins == 5: summary = "全勤达成！奖金已入账。带上永久装备，开启新一周。"
-	rect(54,99,852,28,INK)
-	txt(summary,66,119,14,YELLOW)
-	for i in Equipment.ITEMS.size():
-		var item: Dictionary = Equipment.ITEMS[i]
-		var x := 54+(i%4)*216
-		var y := 136+(i/4)*180
-		panel(Rect2(x,y,206,170),Color("dbe7ce") if equipped.has(i+1) else Color("e8dfc4"))
-		rect(x+5,y+5,196,24,TEAL if equipped.has(i+1) else INK)
-		txt(item.slot + (" / 已装备" if equipped.has(i+1) else (" / 已拥有" if owned.has(i+1) else " / %d 金" % item.price)),x+12,y+23,13,CREAM)
-		draw_item_icon(i+1,Vector2(x+27,y+61),.85)
-		txt(item.name,x+55,y+66,17,INK)
-		txt(item.lines[0],x+12,y+99,14,INK)
-		txt(item.lines[1],x+12,y+121,13,TEAL)
-	centered("金币与装备永久保留  /  临时强化只在当局生效",516,15,TEAL)
-	if toast_time>0: centered(toast,502,13,RED)
 
 func earn_coins(amount: int) -> void:
 	coins = mini(9999,coins+amount)
